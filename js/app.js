@@ -177,23 +177,30 @@
       mistakeBadge.style.display = stats.mistakeCount > 0 ? "inline-block" : "none";
     }
 
-    // Cập nhật huy hiệu trạng thái Supabase Cloud
-    const cloudBadgeContainer = document.getElementById("cloud-status-badge-container");
-    if (cloudBadgeContainer && window.EY8_Supabase) {
-      const cfg = window.EY8_Supabase.getConfig();
-      if (cfg.isConnected) {
-        cloudBadgeContainer.innerHTML = `
-          <button class="cloud-status-badge connected" onclick="openSupabaseSettingsModal()" title="Bấm để xem cấu hình đám mây">
-            🟢 Supabase Cloud: Đang kết nối
-          </button>
-        `;
-      } else {
-        cloudBadgeContainer.innerHTML = `
-          <button class="cloud-status-badge offline" onclick="openSupabaseSettingsModal()" title="Bấm để cấu hình kết nối Supabase">
-            🟡 Chế độ Cục bộ • Bấm nối Supabase
-          </button>
-        `;
+    // Cập nhật khung tài khoản người dùng trên header (Phân quyền Học sinh vs Admin)
+    const userContainer = document.getElementById("header-user-container");
+    if (userContainer && window.EY8_Supabase) {
+      const user = window.EY8_Supabase.getCurrentUser();
+      const isAdmin = window.EY8_Supabase.isAdmin();
+
+      // Đổi tên tab linh hoạt theo vai trò
+      const navTabAnalytics = document.getElementById("nav-tab-analytics");
+      if (navTabAnalytics) {
+        navTabAnalytics.innerHTML = isAdmin ? "👑 Quản Trị & Báo Cáo" : "📈 Tiến Độ Của Em";
       }
+
+      userContainer.innerHTML = `
+        <div class="user-menu-pill">
+          <div class="user-menu-avatar">${isAdmin ? "👑" : "🎓"}</div>
+          <div>
+            <div style="font-weight:700; line-height:1.2; font-size:0.86rem;">${user ? user.fullName : "Khách"}</div>
+            <span class="user-role-tag ${isAdmin ? "admin" : "student"}">${isAdmin ? "Quản trị viên" : "Học sinh"}</span>
+          </div>
+          <button class="btn-auth-action" onclick="openAuthModal()" title="Bấm để đăng nhập hoặc đổi tài khoản">
+            [Đổi tài khoản]
+          </button>
+        </div>
+      `;
     }
 
     const root = document.getElementById("app-root");
@@ -1360,8 +1367,8 @@
   }
 
   function renderAnalyticsView(stats) {
-    const student = window.EY8_Supabase ? window.EY8_Supabase.getCurrentStudent() : { fullName: "Học Sinh Lớp 8" };
-    const cfg = window.EY8_Supabase ? window.EY8_Supabase.getConfig() : { isConnected: false };
+    const currentUser = window.EY8_Supabase ? window.EY8_Supabase.getCurrentUser() : { fullName: "Em Lớp 8", role: "student" };
+    const isAdmin = window.EY8_Supabase ? window.EY8_Supabase.isAdmin() : false;
     const skills = calculateSkillStats();
     const units = window.STUDY_DATA.units || [];
 
@@ -1369,27 +1376,49 @@
     const distinctDates = new Set(state.examHistory.map((h) => (h.date ? h.date.split(" ")[1] : "")));
     const streakDays = Math.max(1, distinctDates.size);
 
-    return `
-      <!-- Hero Banner Học Sinh -->
-      <div class="analytics-hero">
-        <div class="analytics-student-info">
-          <div class="student-avatar">🎓</div>
-          <div>
-            <div style="font-size:0.85rem; color:#A5B4FC; text-transform:uppercase; letter-spacing:0.5px;">Hồ sơ Học sinh • Lớp 8</div>
-            <h2 style="font-size:1.6rem; font-weight:800; margin:2px 0;">${student.fullName}</h2>
-            <div class="streak-pill">🔥 Chuỗi ngày học liên tục: <strong>${streakDays} ngày</strong></div>
+    const bannerHtml = isAdmin
+      ? `
+        <!-- Hero Banner Dành Cho Quản Trị Viên (Admin) -->
+        <div class="analytics-hero" style="background: linear-gradient(135deg, #1E1B4B 0%, #312E81 100%);">
+          <div class="analytics-student-info">
+            <div class="student-avatar" style="background:#4338CA; border-color:#818CF8;">👑</div>
+            <div>
+              <div style="font-size:0.85rem; color:#C7D2FE; text-transform:uppercase; letter-spacing:0.5px;">Bảng Điều Khiển Quản Trị & Báo Cáo Phụ Huynh</div>
+              <h2 style="font-size:1.6rem; font-weight:800; margin:2px 0;">Xin chào, ${currentUser.fullName}</h2>
+              <div style="font-size:0.85rem; color:#E0E7FF; margin-top:4px;">Theo dõi tiến độ, phân tích năng lực và xem chi tiết bài làm của học sinh</div>
+            </div>
+          </div>
+
+          <div style="display:flex; gap:10px; flex-wrap:wrap;">
+            <button class="btn btn-outline-white btn-sm" onclick="openSupabaseSettingsModal()">
+              ⚙️ Cài đặt Supabase Cloud
+            </button>
+            <button class="btn btn-white btn-sm" onclick="syncCloudNow()">
+              🔄 Tải dữ liệu mới nhất
+            </button>
           </div>
         </div>
+      `
+      : `
+        <!-- Hero Banner Dành Cho Học Sinh (Tuyệt đối không có nút kỹ thuật phức tạp) -->
+        <div class="analytics-hero" style="background: linear-gradient(135deg, #0F172A 0%, #1E293B 100%);">
+          <div class="analytics-student-info">
+            <div class="student-avatar" style="background:#4F46E5; border-color:#818CF8;">🎓</div>
+            <div>
+              <div style="font-size:0.85rem; color:#94A3B8; text-transform:uppercase; letter-spacing:0.5px;">Góc Học Tập Cá Nhân • Lớp 8</div>
+              <h2 style="font-size:1.6rem; font-weight:800; margin:2px 0;">Chào mừng em, ${currentUser.fullName}!</h2>
+              <div class="streak-pill">🔥 Chuỗi ngày học liên tục: <strong>${streakDays} ngày</strong></div>
+            </div>
+          </div>
 
-        <div style="display:flex; gap:10px; flex-wrap:wrap;">
-          <button class="btn btn-outline-white btn-sm" onclick="openSupabaseSettingsModal()">
-            ⚙️ Cấu hình Supabase Cloud
-          </button>
-          <button class="btn btn-white btn-sm" onclick="syncCloudNow()">
-            🔄 Đồng bộ đám mây ngay
-          </button>
+          <div style="background: rgba(255,255,255,0.08); padding: 12px 18px; border-radius: var(--radius-md); font-size:0.88rem; max-width: 320px; border: 1px solid rgba(255,255,255,0.15);">
+            🌟 <em>Mỗi ngày luyện 1 bài tập và thuộc 5 từ mới để đạt điểm 10 kì thi Học kì 1 nhé!</em>
+          </div>
         </div>
-      </div>
+      `;
+
+    return `
+      ${bannerHtml}
 
       <!-- 4 Thẻ KPI Chỉ số tổng quan -->
       <div class="kpi-grid">
@@ -1682,22 +1711,214 @@
     `;
   };
 
-  // 2. Modal Cài đặt Supabase Cloud
+  // ==========================================
+  // MODAL ĐĂNG NHẬP / ĐĂNG KÝ (PHÂN QUYỀN HỌC SINH & ADMIN)
+  // ==========================================
+  window.openAuthModal = function (defaultTab = "login") {
+    const modalRoot = document.getElementById("modal-root");
+    if (!modalRoot) return;
+
+    const currentUser = window.EY8_Supabase ? window.EY8_Supabase.getCurrentUser() : null;
+
+    modalRoot.innerHTML = `
+      <div class="modal-overlay" onclick="closeModal()">
+        <div class="modal-content" style="max-width: 480px;" onclick="event.stopPropagation()">
+          <button class="modal-close-btn" onclick="closeModal()">✕</button>
+
+          <div class="auth-tabs">
+            <button id="auth-tab-btn-login" class="auth-tab-btn ${defaultTab === "login" ? "active" : ""}" onclick="switchAuthTab('login')">
+              🔑 Đăng Nhập
+            </button>
+            <button id="auth-tab-btn-register" class="auth-tab-btn ${defaultTab === "register" ? "active" : ""}" onclick="switchAuthTab('register')">
+              ✨ Đăng Ký Tài Khoản
+            </button>
+          </div>
+
+          <!-- Tab Đăng Nhập -->
+          <div id="auth-pane-login" style="display: ${defaultTab === "login" ? "block" : "none"};">
+            <div style="display:flex; flex-direction:column; gap:14px;">
+              <div>
+                <label style="font-size:0.85rem; font-weight:700; display:block; margin-bottom:4px;">Tên đăng nhập (Username)</label>
+                <input id="login-username" type="text" style="width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:var(--radius-sm); font-size:0.9rem;" placeholder="Nhập tên đăng nhập..." />
+              </div>
+
+              <div>
+                <label style="font-size:0.85rem; font-weight:700; display:block; margin-bottom:4px;">Mật khẩu / Mã PIN</label>
+                <input id="login-password" type="password" style="width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:var(--radius-sm); font-size:0.9rem;" placeholder="Nhập mật khẩu..." />
+              </div>
+
+              <div id="login-error-msg" style="display:none; padding:10px 12px; border-radius:var(--radius-sm); background:#FEF2F2; color:#991B1B; font-size:0.85rem;"></div>
+
+              <button class="btn btn-primary" style="width:100%; padding:12px; font-size:0.95rem; font-weight:700;" onclick="handleLoginSubmit()">
+                Đăng Nhập Ngay
+              </button>
+            </div>
+
+            <!-- Nút đăng nhập nhanh tiện lợi -->
+            <div class="quick-login-box">
+              <div class="quick-login-title">⚡ Chọn nhanh tài khoản mẫu:</div>
+              <div class="quick-login-btns">
+                <button class="btn btn-outline btn-sm" onclick="quickFillLogin('em_lop8', '1234')">
+                  🎓 Em Lớp 8
+                </button>
+                <button class="btn btn-outline btn-sm" onclick="quickFillLogin('admin', 'admin123')">
+                  👑 Quản Trị Viên (Admin)
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Tab Đăng Ký -->
+          <div id="auth-pane-register" style="display: ${defaultTab === "register" ? "block" : "none"};">
+            <div style="display:flex; flex-direction:column; gap:14px;">
+              <div>
+                <label style="font-size:0.85rem; font-weight:700; display:block; margin-bottom:4px;">Họ và Tên</label>
+                <input id="reg-fullname" type="text" style="width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:var(--radius-sm); font-size:0.9rem;" placeholder="Ví dụ: Minh Trang" />
+              </div>
+
+              <div>
+                <label style="font-size:0.85rem; font-weight:700; display:block; margin-bottom:4px;">Tên đăng nhập (viết liền không dấu)</label>
+                <input id="reg-username" type="text" style="width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:var(--radius-sm); font-size:0.9rem;" placeholder="Ví dụ: minhtrang" />
+              </div>
+
+              <div>
+                <label style="font-size:0.85rem; font-weight:700; display:block; margin-bottom:4px;">Mật khẩu</label>
+                <input id="reg-password" type="password" style="width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:var(--radius-sm); font-size:0.9rem;" placeholder="Tạo mật khẩu dễ nhớ..." />
+              </div>
+
+              <div>
+                <label style="font-size:0.85rem; font-weight:700; display:block; margin-bottom:4px;">Vai trò tài khoản</label>
+                <select id="reg-role" style="width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:var(--radius-sm); font-size:0.9rem;">
+                  <option value="student" selected>🎓 Học sinh (Lớp 8)</option>
+                  <option value="admin">👑 Phụ huynh / Quản trị viên (Admin)</option>
+                </select>
+              </div>
+
+              <div id="reg-error-msg" style="display:none; padding:10px 12px; border-radius:var(--radius-sm); background:#FEF2F2; color:#991B1B; font-size:0.85rem;"></div>
+
+              <button class="btn btn-primary" style="width:100%; padding:12px; font-size:0.95rem; font-weight:700;" onclick="handleRegisterSubmit()">
+                Tạo Tài Khoản & Vào Học
+              </button>
+            </div>
+          </div>
+
+          ${
+            currentUser
+              ? `
+                <div style="margin-top:18px; padding-top:14px; border-top:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;">
+                  <span style="font-size:0.85rem; color:var(--text-muted);">Đang đăng nhập: <strong>${currentUser.fullName}</strong></span>
+                  <button class="btn btn-outline btn-sm" style="color:var(--danger); border-color:#FECACA;" onclick="handleLogout()">Đăng xuất</button>
+                </div>
+              `
+              : ""
+          }
+        </div>
+      </div>
+    `;
+  };
+
+  window.switchAuthTab = function (tab) {
+    const pLogin = document.getElementById("auth-pane-login");
+    const pReg = document.getElementById("auth-pane-register");
+    const bLogin = document.getElementById("auth-tab-btn-login");
+    const bReg = document.getElementById("auth-tab-btn-register");
+    if (pLogin && pReg) {
+      pLogin.style.display = tab === "login" ? "block" : "none";
+      pReg.style.display = tab === "register" ? "block" : "none";
+    }
+    if (bLogin && bReg) {
+      bLogin.classList.toggle("active", tab === "login");
+      bReg.classList.toggle("active", tab === "register");
+    }
+  };
+
+  window.quickFillLogin = function (u, p) {
+    const uEl = document.getElementById("login-username");
+    const pEl = document.getElementById("login-password");
+    if (uEl) uEl.value = u;
+    if (pEl) pEl.value = p;
+    handleLoginSubmit();
+  };
+
+  window.handleLoginSubmit = async function () {
+    const uEl = document.getElementById("login-username");
+    const pEl = document.getElementById("login-password");
+    const errEl = document.getElementById("login-error-msg");
+    if (!uEl || !pEl) return;
+
+    if (window.EY8_Supabase) {
+      const res = await window.EY8_Supabase.login(uEl.value, pEl.value);
+      if (res.success) {
+        closeModal();
+        renderApp();
+        syncCloudData(true);
+      } else {
+        if (errEl) {
+          errEl.style.display = "block";
+          errEl.textContent = res.message || "Tên đăng nhập hoặc mật khẩu không chính xác!";
+        }
+      }
+    }
+  };
+
+  window.handleRegisterSubmit = async function () {
+    const nEl = document.getElementById("reg-fullname");
+    const uEl = document.getElementById("reg-username");
+    const pEl = document.getElementById("reg-password");
+    const rEl = document.getElementById("reg-role");
+    const errEl = document.getElementById("reg-error-msg");
+
+    if (window.EY8_Supabase) {
+      const res = await window.EY8_Supabase.register({
+        fullName: nEl ? nEl.value : "",
+        username: uEl ? uEl.value : "",
+        password: pEl ? pEl.value : "",
+        role: rEl ? rEl.value : "student"
+      });
+
+      if (res.success) {
+        closeModal();
+        renderApp();
+        alert(`🎉 Tạo tài khoản thành công! Chào mừng ${res.user.fullName}.`);
+        syncCloudData(true);
+      } else {
+        if (errEl) {
+          errEl.style.display = "block";
+          errEl.textContent = res.message || "Đăng ký không thành công!";
+        }
+      }
+    }
+  };
+
+  window.handleLogout = function () {
+    if (window.EY8_Supabase) {
+      window.EY8_Supabase.logout();
+      closeModal();
+      renderApp();
+    }
+  };
+
+  // 2. Modal Cài đặt Supabase Cloud (CHỈ DÀNH CHO ADMIN)
   window.openSupabaseSettingsModal = function () {
+    if (window.EY8_Supabase && !window.EY8_Supabase.isAdmin()) {
+      alert("Tính năng cài đặt kỹ thuật này chỉ dành riêng cho tài khoản Quản trị viên (Admin)!");
+      return;
+    }
+
     const modalRoot = document.getElementById("modal-root");
     if (!modalRoot) return;
 
     const cfg = window.EY8_Supabase ? window.EY8_Supabase.getConfig() : {};
-    const student = window.EY8_Supabase ? window.EY8_Supabase.getCurrentStudent() : {};
+    const currentUser = window.EY8_Supabase ? window.EY8_Supabase.getCurrentUser() : {};
 
     modalRoot.innerHTML = `
       <div class="modal-overlay" onclick="closeModal()">
         <div class="modal-content" onclick="event.stopPropagation()">
           <button class="modal-close-btn" onclick="closeModal()">✕</button>
 
-          <h3 style="font-size:1.3rem; font-weight:800; margin-bottom:6px;">⚙️ Cấu Hình Supabase Cloud Database</h3>
+          <h3 style="font-size:1.3rem; font-weight:800; margin-bottom:6px;">⚙️ Cấu Hình Supabase Cloud Database (Admin)</h3>
           <p style="font-size:0.88rem; color:var(--text-muted); margin-bottom:18px;">
-            Kết nối với cơ sở dữ liệu Supabase để đồng bộ kết quả học tập của em giữa máy tính và điện thoại theo thời gian thực.
+            Khu vực quản lý kết nối cơ sở dữ liệu Supabase dành cho Quản trị viên.
           </p>
 
           <div style="display:flex; flex-direction:column; gap:14px;">
@@ -1709,14 +1930,6 @@
             <div>
               <label style="font-size:0.85rem; font-weight:700; display:block; margin-bottom:4px;">Supabase Anon Public API Key</label>
               <input id="input-supabase-key" type="password" style="width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:var(--radius-sm); font-family:monospace; font-size:0.85rem;" value="${cfg.anonKey || ""}" placeholder="Dán mã anon public key tại đây..." />
-              <p style="font-size:0.78rem; color:var(--text-muted); margin-top:4px;">
-                🔑 <strong>Cách lấy Anon Key:</strong> Vào Supabase Dashboard (project <em>iiltwryccctzjbfddjcw</em>) ➔ <strong>Project Settings</strong> ➔ <strong>API</strong> ➔ Mục <strong>Project API keys</strong> ➔ Copy dòng <code>anon</code> <code>public</code>.
-              </p>
-            </div>
-
-            <div>
-              <label style="font-size:0.85rem; font-weight:700; display:block; margin-bottom:4px;">Tên Học Sinh Hiển Thị</label>
-              <input id="input-student-name" type="text" style="width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:var(--radius-sm); font-size:0.9rem;" value="${student.fullName || "Học Sinh Lớp 8"}" />
             </div>
 
             <div id="supabase-modal-msg" style="display:none; padding:10px 14px; border-radius:var(--radius-sm); font-size:0.85rem;"></div>

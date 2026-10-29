@@ -28,10 +28,11 @@ INSERT INTO courses (id, grade_id, subject_id, series_id, title, description) VA
 ('course-eng-8-gs', 'grade-8', 'english', 'global-success', 'Tiếng Anh 8 - Global Success', 'Chương trình ôn tập & luyện thi Tiếng Anh 8 GDPT mới')
 ON CONFLICT (id) DO UPDATE SET title = EXCLUDED.title;
 
--- 5. DEFAULT STUDENT PROFILE
+-- 5. DEFAULT PROFILES (HỌC SINH & ADMIN)
 INSERT INTO users (id, username, full_name, role, pin_code, streak_days) VALUES
-('a0000000-0000-0000-0000-000000000001', 'em_lop8', 'Học Sinh Lớp 8', 'student', '1234', 1)
-ON CONFLICT (username) DO UPDATE SET full_name = EXCLUDED.full_name;
+('a0000000-0000-0000-0000-000000000001', 'em_lop8', 'Em Lớp 8', 'student', '1234', 1),
+('a0000000-0000-0000-0000-000000000002', 'admin', 'Quản Trị Viên (Anh/Chị)', 'admin', 'admin123', 0)
+ON CONFLICT (username) DO UPDATE SET full_name = EXCLUDED.full_name, role = EXCLUDED.role, pin_code = EXCLUDED.pin_code;
 
 -- 6. UNITS & LESSONS
 INSERT INTO units (id, course_id, unit_number, semester, title, vi_title, summary, icon, color) VALUES
