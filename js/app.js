@@ -24,7 +24,9 @@
     unitSubTab: "vocab", // vocab | grammar | practice
     fcIndex: 0,
     fcFlipped: false,
+    fcDeckMode: "unlearned", // 'unlearned' (chỉ học từ chưa thuộc - mặc định) | 'all' (ôn tất cả)
     vocabFilter: "",
+    vocabStatusFilter: "all", // 'all' | 'unlearned' | 'learned'
     unitQuizAnswers: {},
     unitQuizSubmitted: false,
 
@@ -202,6 +204,24 @@
     }
   };
 
+  // Đặt vị trí Flashcard thông minh vào từ CHƯA THUỘC đầu tiên của Unit (tránh lặp lại từ đã thuộc)
+  function resetFlashcardPositionForUnit(unitId) {
+    const units = window.STUDY_DATA.units || [];
+    const unit = units.find((u) => u.id === unitId) || units[0];
+    state.fcFlipped = false;
+    if (!unit) {
+      state.fcIndex = 0;
+      return;
+    }
+    const unlearnedList = unit.vocabulary.filter((v) => !state.learnedVocab[v.id]);
+    if (unlearnedList.length > 0) {
+      state.fcDeckMode = "unlearned";
+      state.fcIndex = 0;
+    } else {
+      state.fcIndex = 0;
+    }
+  }
+
   // Chuyển tab dành cho Học sinh
   window.switchMainTab = function (tabName, unitId) {
     if (state.activeExam && !state.examSubmitted && tabName !== "exams") {
@@ -214,10 +234,11 @@
     state.currentTab = tabName;
     if (unitId) {
       state.selectedUnitId = unitId;
-      state.fcIndex = 0;
-      state.fcFlipped = false;
       state.unitQuizAnswers = {};
       state.unitQuizSubmitted = false;
+      resetFlashcardPositionForUnit(unitId);
+    } else if (tabName === "unit-study") {
+      resetFlashcardPositionForUnit(state.selectedUnitId);
     }
     if (tabName === "student-progress" || tabName === "dashboard") {
       syncCloudData(true);
@@ -251,10 +272,9 @@
     state.currentTab = "unit-study";
     state.selectedUnitId = unitId;
     state.unitSubTab = subTab || "vocab";
-    state.fcIndex = 0;
-    state.fcFlipped = false;
     state.unitQuizAnswers = {};
     state.unitQuizSubmitted = false;
+    resetFlashcardPositionForUnit(unitId);
     renderApp();
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
@@ -1013,10 +1033,9 @@
 
   window.selectUnit = function (unitId) {
     state.selectedUnitId = unitId;
-    state.fcIndex = 0;
-    state.fcFlipped = false;
     state.unitQuizAnswers = {};
     state.unitQuizSubmitted = false;
+    resetFlashcardPositionForUnit(unitId);
     renderApp();
   };
 
@@ -1025,102 +1044,348 @@
     renderApp();
   };
 
+  function getActiveFlashcardDeck(unit) {
+    const vocabList = (unit && unit.vocabulary) || [];
+    if (state.fcDeckMode === "unlearned") {
+      return vocabList.filter((v) => !state.learnedVocab[v.id]);
+    }
+    return vocabList;
+  }
+
   function renderUnitVocabSubTab(unit) {
-    const vocabList = unit.vocabulary;
-    const currentCard = vocabList[state.fcIndex] || vocabList[0];
-    const isLearned = !!state.learnedVocab[currentCard.id];
+    const vocabList = unit.vocabulary || [];
+    const totalCount = vocabList.length;
     const learnedInUnit = vocabList.filter((v) => state.learnedVocab[v.id]).length;
+    const unlearnedCount = totalCount - learnedInUnit;
+    const progressPct = totalCount > 0 ? Math.round((learnedInUnit / totalCount) * 100) : 0;
 
-    const filteredVocab = vocabList.filter(
-      (v) =>
-        v.word.toLowerCase().includes(state.vocabFilter.toLowerCase()) ||
-        v.meaning.toLowerCase().includes(state.vocabFilter.toLowerCase())
-    );
+    // Bộ thẻ đang hiển thị trên Flashcard Studio
+    const activeDeck = getActiveFlashcardDeck(unit);
+    if (state.fcIndex >= activeDeck.length) {
+      state.fcIndex = Math.max(0, activeDeck.length - 1);
+    }
+    const currentCard = activeDeck[state.fcIndex] || null;
+    const isCurrentLearned = currentCard ? !!state.learnedVocab[currentCard.id] : false;
 
-    return `
-      <div class="flashcard-wrapper">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; font-size:0.9rem;">
-          <span><strong>Thẻ ghi nhớ thông minh (Flashcard):</strong> Từ ${state.fcIndex + 1} / ${vocabList.length}</span>
-          <span style="color:var(--success); font-weight:700;">Đã thuộc: ${learnedInUnit}/${vocabList.length} từ</span>
-        </div>
-
-        <div class="flashcard" onclick="flipFlashcard()">
-          ${
-            !state.fcFlipped
-              ? `
-              <span class="fc-type">${currentCard.type}</span>
-              <div class="fc-word">${currentCard.word}</div>
-              <div class="fc-ipa">${currentCard.ipa}</div>
-              <button class="speaker-btn" onclick="speakEnglish('${currentCard.word.replace(/'/g, "\\'")}', event)" title="Nghe phát âm chuẩn">
-                🔊
+    // Phần 1: Nội dung bên trong Flashcard Studio Stage
+    let flashcardBodyHtml = "";
+    if (!currentCard) {
+      // Đã thuộc hết 100% từ trong chế độ "Chỉ học từ chưa thuộc"
+      flashcardBodyHtml = `
+        <div class="flashcard-wrapper">
+          <div class="fc-card-3d card-mastered" style="cursor:default; justify-content:center; gap:14px;">
+            <div style="font-size:3.2rem; line-height:1;">🎉</div>
+            <h3 style="font-size:1.5rem; font-weight:900; color:#065F46;">
+              Xuất sắc! Em đã thuộc trọn bộ ${totalCount}/${totalCount} từ vựng Unit ${unit.number}!
+            </h3>
+            <p style="font-size:0.94rem; color:#475569; max-width:480px;">
+              Không còn từ vựng nào chưa thuộc trong Unit này. Em có thể ôn lại toàn bộ ${totalCount} thẻ hoặc chuyển sang làm bài tập thực hành nhé!
+            </p>
+            <div style="display:flex; gap:12px; flex-wrap:wrap; justify-content:center; margin-top:8px;">
+              <button class="btn btn-outline" onclick="setFlashcardDeckMode('all')">
+                📚 Xem & Ôn lại toàn bộ (${totalCount} từ)
               </button>
-              <span class="fc-hint">👆 Bấm vào thẻ để lật xem nghĩa tiếng Việt & câu ví dụ</span>
-            `
-              : `
-              <span class="fc-type">${currentCard.word} ${currentCard.ipa}</span>
-              <div class="fc-meaning">${currentCard.meaning}</div>
-              <div class="fc-example">"${currentCard.example}"</div>
-              <div class="fc-example-vi">→ ${currentCard.exampleVi}</div>
-              <div class="fc-tip">💡 <strong>Mẹo nhớ / Lưu ý thi:</strong> ${currentCard.tip}</div>
-              <span class="fc-hint">👆 Bấm vào thẻ để lật lại mặt trước</span>
-            `
-          }
+              <button class="btn btn-primary" onclick="switchUnitSubTab('practice')">
+                ✍️ Làm bài tập thực hành Unit ${unit.number} ➔
+              </button>
+            </div>
+          </div>
+        </div>
+      `;
+    } else {
+      const wordStripHtml = activeDeck
+        .map((item, idx) => {
+          const itemLearned = !!state.learnedVocab[item.id];
+          const isActive = idx === state.fcIndex;
+          return `
+            <button
+              class="fc-word-dot ${isActive ? "active" : ""} ${itemLearned ? "is-learned" : ""}"
+              onclick="jumpToFlashcard(${idx})"
+              title="${item.word}: ${item.meaning}"
+            >
+              <span>${idx + 1}. ${item.word}</span>
+              ${itemLearned ? `<span>✓</span>` : ""}
+            </button>
+          `;
+        })
+        .join("");
+
+      flashcardBodyHtml = `
+        <div class="fc-word-strip">
+          ${wordStripHtml}
         </div>
 
-        <div class="fc-controls">
-          <button class="btn btn-outline" onclick="prevFlashcard()">⬅ Từ trước</button>
-          <button class="btn ${isLearned ? "btn-success" : "btn-primary"}" onclick="toggleLearnedVocab('${currentCard.id}')">
-            ${isLearned ? "✅ Đã thuộc từ này (Bấm để bỏ)" : "📌 Đánh dấu: Đã thuộc từ này"}
-          </button>
-          <button class="btn btn-outline" onclick="nextFlashcard()">Từ tiếp theo ➡</button>
-        </div>
-      </div>
+        <div class="flashcard-wrapper">
+          <div class="fc-card-3d ${state.fcFlipped ? "is-flipped" : ""} ${isCurrentLearned ? "card-mastered" : ""}" onclick="flipFlashcard()">
+            <div class="fc-card-top-meta">
+              <span class="fc-type">${currentCard.type}</span>
+              <span style="font-size:0.78rem; font-weight:800; padding:4px 12px; border-radius:99px; background:${isCurrentLearned ? "#D1FAE5" : "#FEF3C7"}; color:${isCurrentLearned ? "#065F46" : "#92400E"};">
+                ${isCurrentLearned ? "✅ Đã thuộc" : `⏳ Từ ${state.fcIndex + 1} / ${activeDeck.length} (${state.fcDeckMode === "unlearned" ? "Chưa thuộc" : "Tất cả"})`}
+              </span>
+            </div>
 
-      <div class="section-header" style="margin-top:32px;">
-        <h2>📋 Bảng tổng hợp ${vocabList.length} từ vựng Unit ${unit.number}</h2>
-        <input
-          type="text"
-          placeholder="🔍 Tìm nhanh từ vựng hoặc nghĩa..."
-          value="${state.vocabFilter}"
-          oninput="filterVocabList(this.value)"
-          style="padding:8px 14px; border-radius:8px; border:1px solid var(--border); min-width:250px; font-size:0.9rem;"
-        />
-      </div>
-
-      <div class="vocab-list-grid">
-        ${filteredVocab
-          .map((v) => {
-            const learned = !!state.learnedVocab[v.id];
-            return `
-              <div class="vocab-item ${learned ? "learned" : ""}">
-                <div>
-                  <div class="vocab-item-header">
-                    <div>
-                      <span class="vocab-word-title">${v.word}</span>
-                      <span style="font-size:0.85rem; color:var(--text-muted); margin-left:6px;">${v.ipa}</span>
-                      <span class="fc-type" style="margin-left:6px; margin-bottom:0;">${v.type}</span>
-                    </div>
-                    <button class="speaker-btn" onclick="speakEnglish('${v.word.replace(/'/g, "\\'")}', event)" title="Nghe phát âm">🔊</button>
+            ${
+              !state.fcFlipped
+                ? `
+                <div style="my:auto; padding: 10px 0;">
+                  <div class="fc-word">${currentCard.word}</div>
+                  <div class="fc-ipa">${currentCard.ipa}</div>
+                  <div style="margin-top:4px;">
+                    <button class="speaker-btn" style="width:48px; height:48px; font-size:1.3rem;" onclick="speakEnglish('${currentCard.word.replace(/'/g, "\\'")}', event)" title="Nghe phát âm chuẩn">
+                      🔊
+                    </button>
                   </div>
-                  <div class="vocab-meaning-text">${v.meaning}</div>
-                  <div style="font-size:0.84rem; color:#334155; font-style:italic; margin-bottom:4px;">"${v.example}"</div>
-                  <div style="font-size:0.8rem; color:var(--text-muted); margin-bottom:8px;">(${v.exampleVi})</div>
                 </div>
-                <div>
-                  <div style="font-size:0.8rem; background:#FEF3C7; color:#92400E; padding:6px 10px; border-radius:6px; margin-bottom:8px;">
-                    💡 ${v.tip}
+                <span class="fc-hint">👆 Bấm vào thẻ để lật xem nghĩa tiếng Việt & câu ví dụ</span>
+              `
+                : `
+                <div style="width:100%;">
+                  <div style="display:flex; align-items:center; justify-content:center; gap:10px; margin-bottom:4px;">
+                    <span style="font-size:1.25rem; font-weight:900; color:#4F46E5;">${currentCard.word}</span>
+                    <span style="font-size:0.95rem; color:#64748B; font-family:monospace;">${currentCard.ipa}</span>
+                    <button class="speaker-btn" style="width:32px; height:32px; font-size:0.9rem;" onclick="speakEnglish('${currentCard.word.replace(/'/g, "\\'")}', event)" title="Nghe phát âm">🔊</button>
                   </div>
-                  <button class="btn btn-sm ${learned ? "btn-success" : "btn-outline"}" style="width:100%" onclick="toggleLearnedVocab('${v.id}')">
-                    ${learned ? "✅ Đã thuộc" : "Đánh dấu Đã thuộc"}
+                  <div class="fc-meaning">${currentCard.meaning}</div>
+                  <div class="fc-example-box">
+                    <div class="fc-example">🇬🇧 "${currentCard.example}"</div>
+                    <div class="fc-example-vi">🇻🇳 → ${currentCard.exampleVi}</div>
+                  </div>
+                  <div class="fc-tip">💡 <strong>Mẹo nhớ / Lưu ý thi:</strong> ${currentCard.tip}</div>
+                </div>
+                <span class="fc-hint">👆 Bấm vào thẻ để lật lại mặt trước</span>
+              `
+            }
+          </div>
+
+          <div class="fc-controls">
+            <button class="fc-nav-btn" onclick="prevFlashcard()">⬅ Từ trước</button>
+
+            ${
+              !isCurrentLearned
+                ? `
+                <button class="fc-mark-learned-btn" onclick="markVocabLearned('${currentCard.id}', true)">
+                  ✅ Đã thuộc từ này & Qua từ tiếp theo ➔
+                </button>
+              `
+                : `
+                <div class="fc-already-learned-group">
+                  <span class="fc-learned-locked-pill">
+                    🎉 Đã thuộc từ này
+                  </span>
+                  <button class="fc-unmark-sub-btn" onclick="unmarkVocabLearned('${currentCard.id}')" title="Chuyển từ này về danh sách chưa thuộc để học lại">
+                    ↩️ Đặt lại: Chưa thuộc
                   </button>
                 </div>
+              `
+            }
+
+            <button class="fc-nav-btn" onclick="nextFlashcard()">Từ tiếp theo ➡</button>
+          </div>
+        </div>
+      `;
+    }
+
+    // Phần 2: Lọc danh sách cho Bảng tổng hợp từ vựng bên dưới
+    const filteredVocab = vocabList.filter((v) => {
+      const matchSearch =
+        v.word.toLowerCase().includes(state.vocabFilter.toLowerCase()) ||
+        v.meaning.toLowerCase().includes(state.vocabFilter.toLowerCase());
+      if (!matchSearch) return false;
+      if (state.vocabStatusFilter === "unlearned") return !state.learnedVocab[v.id];
+      if (state.vocabStatusFilter === "learned") return !!state.learnedVocab[v.id];
+      return true;
+    });
+
+    return `
+      <!-- KHU VỰC 1: FLASHCARD STUDIO (TƯƠNG PHẢN CAO, TÁCH BIỆT VỚI BẢNG TỪ VỰNG) -->
+      <div class="fc-studio-stage" id="flashcard-studio-top">
+        <div class="fc-studio-topbar">
+          <div class="fc-studio-title">
+            <span style="font-size:1.45rem;">🃏</span>
+            <div>
+              <div style="font-size:1.08rem; font-weight:800; color:white;">
+                Phòng Học Thẻ Ghi Nhớ (Flashcard Thông Minh)
               </div>
-            `;
-          })
-          .join("")}
+              <div style="font-size:0.8rem; color:#C7D2FE;">
+                Tự động ẩn các từ em đã thuộc để không bị bấm nhầm hoặc học lặp lại
+              </div>
+            </div>
+          </div>
+
+          <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+            <span class="fc-studio-badge">
+              ✅ Tiến độ: ${learnedInUnit} / ${totalCount} từ (${progressPct}%)
+            </span>
+            <div class="fc-deck-mode-switch">
+              <button
+                class="fc-deck-mode-btn ${state.fcDeckMode === "unlearned" ? "active" : ""}"
+                onclick="setFlashcardDeckMode('unlearned')"
+              >
+                🎯 Chỉ từ chưa thuộc (${unlearnedCount})
+              </button>
+              <button
+                class="fc-deck-mode-btn ${state.fcDeckMode === "all" ? "active" : ""}"
+                onclick="setFlashcardDeckMode('all')"
+              >
+                📚 Xem tất cả (${totalCount})
+              </button>
+            </div>
+          </div>
+        </div>
+
+        ${flashcardBodyHtml}
+      </div>
+
+      <!-- KHU VỰC 2: BẢNG TỔNG HỢP TỪ VỰNG (TRA CỨU NHANH & CHỐNG BẤM NHẦM) -->
+      <div class="vocab-summary-panel">
+        <div class="vocab-toolbar">
+          <div>
+            <h2 style="font-size:1.22rem; font-weight:800; color:var(--text-main);">
+              📋 Bảng Tra Cứu Từ Vựng Unit ${unit.number} (${totalCount} từ)
+            </h2>
+            <p style="font-size:0.83rem; color:var(--text-muted);">
+              Các từ đã thuộc được khóa trạng thái an toàn để tránh bấm nhầm khi cuộn trang
+            </p>
+          </div>
+
+          <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+            <div class="vocab-status-tabs">
+              <button
+                class="vocab-status-tab ${state.vocabStatusFilter === "all" ? "active" : ""}"
+                onclick="setVocabStatusFilter('all')"
+              >
+                Tất cả (${totalCount})
+              </button>
+              <button
+                class="vocab-status-tab ${state.vocabStatusFilter === "unlearned" ? "active" : ""}"
+                onclick="setVocabStatusFilter('unlearned')"
+              >
+                ⏳ Chưa thuộc (${unlearnedCount})
+              </button>
+              <button
+                class="vocab-status-tab ${state.vocabStatusFilter === "learned" ? "active" : ""}"
+                onclick="setVocabStatusFilter('learned')"
+              >
+                ✅ Đã thuộc (${learnedInUnit})
+              </button>
+            </div>
+
+            <input
+              type="text"
+              placeholder="🔍 Tìm từ hoặc nghĩa..."
+              value="${state.vocabFilter}"
+              oninput="filterVocabList(this.value)"
+              style="padding:8px 14px; border-radius:10px; border:1.5px solid var(--border); min-width:220px; font-size:0.88rem;"
+            />
+          </div>
+        </div>
+
+        ${
+          filteredVocab.length === 0
+            ? `
+            <div style="text-align:center; padding:32px 16px; color:var(--text-muted);">
+              Không có từ vựng nào trong bộ lọc này.
+            </div>
+          `
+            : `
+            <div class="vocab-list-grid">
+              ${filteredVocab
+                .map((v) => {
+                  const learned = !!state.learnedVocab[v.id];
+                  return `
+                    <div class="vocab-item ${learned ? "learned" : ""}">
+                      <div>
+                        <div class="vocab-item-header">
+                          <div>
+                            <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                              <span class="vocab-word-title">${v.word}</span>
+                              <span class="fc-type" style="padding:2px 8px; font-size:0.75rem;">${v.type}</span>
+                            </div>
+                            <div style="font-size:0.86rem; color:var(--text-muted); font-family:monospace; margin-top:2px;">
+                              ${v.ipa}
+                            </div>
+                          </div>
+                          <button class="speaker-btn" onclick="speakEnglish('${v.word.replace(/'/g, "\\'")}', event)" title="Nghe phát âm">🔊</button>
+                        </div>
+
+                        <div class="vocab-meaning-text">${v.meaning}</div>
+                        <div style="font-size:0.85rem; color:#334155; font-style:italic; margin-bottom:2px;">"${v.example}"</div>
+                        <div style="font-size:0.8rem; color:var(--text-muted); margin-bottom:10px;">→ ${v.exampleVi}</div>
+
+                        <div style="font-size:0.8rem; background:#FFFBEB; border:1px solid #FDE68A; color:#92400E; padding:7px 10px; border-radius:8px;">
+                          💡 ${v.tip}
+                        </div>
+                      </div>
+
+                      <div class="vocab-item-footer">
+                        <button class="btn btn-outline btn-sm" onclick="reviewVocabInFlashcard('${v.id}')">
+                          🃏 Xem Flashcard
+                        </button>
+
+                        ${
+                          !learned
+                            ? `
+                            <button class="btn btn-primary btn-sm" onclick="markVocabLearned('${v.id}', false)">
+                              📌 Đánh dấu Đã thuộc
+                            </button>
+                          `
+                            : `
+                            <div style="display:flex; align-items:center; gap:8px;">
+                              <span class="vocab-learned-safe-badge">
+                                ✅ Đã thuộc
+                              </span>
+                              <button class="vocab-reset-mini-btn" onclick="unmarkVocabLearned('${v.id}')" title="Chuyển về trạng thái Chưa thuộc">
+                                ↩️ Học lại
+                              </button>
+                            </div>
+                          `
+                        }
+                      </div>
+                    </div>
+                  `;
+                })
+                .join("")}
+            </div>
+          `
+        }
       </div>
     `;
   }
+
+  window.setFlashcardDeckMode = function (mode) {
+    state.fcDeckMode = mode;
+    state.fcIndex = 0;
+    state.fcFlipped = false;
+    renderApp();
+  };
+
+  window.setVocabStatusFilter = function (filterMode) {
+    state.vocabStatusFilter = filterMode;
+    renderApp();
+  };
+
+  window.jumpToFlashcard = function (idx) {
+    state.fcIndex = idx;
+    state.fcFlipped = false;
+    renderApp();
+  };
+
+  window.reviewVocabInFlashcard = function (vocabId) {
+    const unit = (window.STUDY_DATA.units || []).find((u) => u.id === state.selectedUnitId);
+    if (!unit) return;
+    let deck = getActiveFlashcardDeck(unit);
+    let idx = deck.findIndex((v) => v.id === vocabId);
+    if (idx === -1) {
+      state.fcDeckMode = "all";
+      deck = unit.vocabulary;
+      idx = deck.findIndex((v) => v.id === vocabId);
+    }
+    state.fcIndex = Math.max(0, idx);
+    state.fcFlipped = false;
+    renderApp();
+    const el = document.getElementById("flashcard-studio-top");
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
 
   window.flipFlashcard = function () {
     state.fcFlipped = !state.fcFlipped;
@@ -1130,7 +1395,9 @@
   window.prevFlashcard = function () {
     const unit = (window.STUDY_DATA.units || []).find((u) => u.id === state.selectedUnitId);
     if (!unit) return;
-    state.fcIndex = (state.fcIndex - 1 + unit.vocabulary.length) % unit.vocabulary.length;
+    const deck = getActiveFlashcardDeck(unit);
+    if (deck.length === 0) return;
+    state.fcIndex = (state.fcIndex - 1 + deck.length) % deck.length;
     state.fcFlipped = false;
     renderApp();
   };
@@ -1138,37 +1405,63 @@
   window.nextFlashcard = function () {
     const unit = (window.STUDY_DATA.units || []).find((u) => u.id === state.selectedUnitId);
     if (!unit) return;
-    state.fcIndex = (state.fcIndex + 1) % unit.vocabulary.length;
+    const deck = getActiveFlashcardDeck(unit);
+    if (deck.length === 0) return;
+    state.fcIndex = (state.fcIndex + 1) % deck.length;
     state.fcFlipped = false;
     renderApp();
   };
 
-  window.toggleLearnedVocab = function (vocabId) {
-    let isNowLearned = false;
-    if (state.learnedVocab[vocabId]) {
-      delete state.learnedVocab[vocabId];
-      isNowLearned = false;
-    } else {
-      state.learnedVocab[vocabId] = true;
-      isNowLearned = true;
-    }
+  // Đánh dấu 1 chiều: ĐÃ THUỘC (Không bao giờ tự hủy khi bấm nhầm lần 2)
+  window.markVocabLearned = function (vocabId, fromFlashcard) {
+    state.learnedVocab[vocabId] = true;
+    state.fcFlipped = false;
     persistActiveStudentState();
 
     if (window.EY8_Supabase && window.EY8_Supabase.syncVocabProgress) {
-      window.EY8_Supabase.syncVocabProgress(
-        vocabId,
-        state.selectedUnitId,
-        isNowLearned ? "mastered" : "learning",
-        state
-      );
+      window.EY8_Supabase.syncVocabProgress(vocabId, state.selectedUnitId, "mastered", state);
+    }
+
+    const unit = (window.STUDY_DATA.units || []).find((u) => u.id === state.selectedUnitId);
+    if (unit && fromFlashcard) {
+      if (state.fcDeckMode === "unlearned") {
+        // Từ vừa học đã tự động rời khỏi danh sách Chưa thuộc, giữ nguyên fcIndex (hoặc về 0 nếu ở cuối)
+        const remaining = unit.vocabulary.filter((v) => !state.learnedVocab[v.id]);
+        if (state.fcIndex >= remaining.length) {
+          state.fcIndex = 0;
+        }
+      } else {
+        // Nếu đang ở chế độ Xem tất cả, tự động chuyển sang từ tiếp theo
+        state.fcIndex = (state.fcIndex + 1) % unit.vocabulary.length;
+      }
     }
     renderApp();
+  };
+
+  // Đặt lại từ về trạng thái Chưa thuộc (chỉ kích hoạt qua nút phụ "↩️ Học lại")
+  window.unmarkVocabLearned = function (vocabId) {
+    delete state.learnedVocab[vocabId];
+    persistActiveStudentState();
+
+    if (window.EY8_Supabase && window.EY8_Supabase.syncVocabProgress) {
+      window.EY8_Supabase.syncVocabProgress(vocabId, state.selectedUnitId, "learning", state);
+    }
+    renderApp();
+  };
+
+  // Giữ hàm tương thích ngược nếu có nơi gọi
+  window.toggleLearnedVocab = function (vocabId) {
+    if (state.learnedVocab[vocabId]) {
+      window.unmarkVocabLearned(vocabId);
+    } else {
+      window.markVocabLearned(vocabId, false);
+    }
   };
 
   window.filterVocabList = function (val) {
     state.vocabFilter = val;
     renderApp();
-    const input = document.querySelector('input[placeholder*="Tìm nhanh"]');
+    const input = document.querySelector('input[placeholder*="Tìm từ hoặc nghĩa"]');
     if (input) {
       input.focus();
       input.setSelectionRange(val.length, val.length);

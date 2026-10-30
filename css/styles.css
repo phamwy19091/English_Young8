@@ -95,67 +95,71 @@ body {
 }
 
 .header-inner {
-  max-width: 1200px;
+  max-width: 1320px;
   margin: 0 auto;
-  padding: 14px 20px;
+  padding: 10px 20px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: 12px;
   flex-wrap: wrap;
 }
 
 .brand {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   cursor: pointer;
+  flex-shrink: 0;
 }
 
 .brand-logo {
-  width: 44px;
-  height: 44px;
-  border-radius: 12px;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
   background: linear-gradient(135deg, #4F46E5, #0EA5E9);
   color: white;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 1.4rem;
+  font-size: 1.25rem;
   font-weight: 800;
   box-shadow: 0 4px 10px rgba(79, 70, 229, 0.25);
 }
 
 .brand-text h1 {
-  font-size: 1.2rem;
+  font-size: 1.12rem;
   font-weight: 800;
   color: var(--text-main);
   letter-spacing: -0.02em;
+  line-height: 1.2;
 }
 
 .brand-text p {
-  font-size: 0.8rem;
+  font-size: 0.75rem;
   color: var(--text-muted);
 }
 
 .nav-tabs {
   display: flex;
-  gap: 6px;
+  gap: 4px;
   flex-wrap: wrap;
+  align-items: center;
 }
 
 .nav-tab {
   border: none;
   background: transparent;
-  padding: 10px 16px;
+  padding: 8px 13px;
   border-radius: var(--radius-md);
-  font-size: 0.92rem;
+  font-size: 0.87rem;
   font-weight: 600;
   color: var(--text-muted);
   cursor: pointer;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+  white-space: nowrap;
   transition: all 0.2s;
 }
 
@@ -519,19 +523,146 @@ body {
   border-bottom-color: var(--primary);
 }
 
-/* Flashcard Box */
-.flashcard-wrapper {
-  max-width: 640px;
-  margin: 0 auto 32px;
+/* ==============================================================================
+   FLASHCARD STUDIO & VOCABULARY SUMMARY REDESIGN (HIGH CONTRAST & ANTI-MISCLICK)
+   ============================================================================== */
+
+/* 1. Khu vực Học Flashcard Thông Minh (Dark Indigo Studio Stage) */
+.fc-studio-stage {
+  background: linear-gradient(145deg, #1E1B4B 0%, #312E81 55%, #0F172A 100%);
+  border-radius: 24px;
+  padding: 26px 28px 30px;
+  margin-bottom: 36px;
+  color: white;
+  box-shadow: 0 16px 36px rgba(30, 27, 75, 0.22);
+  border: 1px solid rgba(129, 140, 248, 0.28);
 }
 
+.fc-studio-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-bottom: 16px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.fc-studio-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.fc-studio-badge {
+  background: rgba(255, 255, 255, 0.14);
+  color: #E0E7FF;
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.fc-deck-mode-switch {
+  display: inline-flex;
+  background: rgba(15, 23, 42, 0.55);
+  padding: 4px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  gap: 4px;
+}
+
+.fc-deck-mode-btn {
+  border: none;
+  background: transparent;
+  color: #CBD5E1;
+  font-size: 0.82rem;
+  font-weight: 700;
+  padding: 7px 14px;
+  border-radius: 9px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.fc-deck-mode-btn:hover {
+  color: white;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.fc-deck-mode-btn.active {
+  background: #4F46E5;
+  color: white;
+  box-shadow: 0 2px 8px rgba(79, 70, 229, 0.45);
+}
+
+/* Thanh chỉ số chấm tròn từng từ trong bộ thẻ */
+.fc-word-strip {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 20px;
+}
+
+.fc-word-dot {
+  border: 1.5px solid rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.08);
+  color: #E2E8F0;
+  font-size: 0.76rem;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all 0.18s;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.fc-word-dot:hover {
+  background: rgba(255, 255, 255, 0.18);
+  border-color: rgba(255, 255, 255, 0.45);
+}
+
+.fc-word-dot.active {
+  background: #F59E0B;
+  border-color: #FDE68A;
+  color: #0F172A;
+  font-weight: 800;
+  transform: scale(1.06);
+  box-shadow: 0 0 12px rgba(245, 158, 11, 0.5);
+}
+
+.fc-word-dot.is-learned {
+  border-color: rgba(16, 185, 129, 0.55);
+  background: rgba(16, 185, 129, 0.18);
+  color: #A7F3D0;
+}
+
+.fc-word-dot.is-learned.active {
+  background: #10B981;
+  border-color: #A7F3D0;
+  color: white;
+}
+
+/* Thẻ Flashcard 3D Nổi Bật ở trung tâm */
+.flashcard-wrapper {
+  max-width: 680px;
+  margin: 0 auto;
+}
+
+.fc-card-3d,
+.flashcard,
 .flashcard-box {
-  background: white;
-  border: 2px solid #E0E7FF;
-  border-radius: 20px;
-  padding: 32px 28px;
-  min-height: 290px;
-  box-shadow: var(--shadow-md);
+  background: #FFFFFF;
+  color: var(--text-main);
+  border-radius: 22px;
+  padding: 32px 32px 26px;
+  min-height: 310px;
+  box-shadow: 0 20px 45px rgba(0, 0, 0, 0.28), 0 0 0 4px rgba(255, 255, 255, 0.12);
   display: flex;
   flex-direction: column;
   justify-content: space-between;
@@ -539,131 +670,364 @@ body {
   text-align: center;
   cursor: pointer;
   position: relative;
-  transition: transform 0.2s, border-color 0.2s;
+  transition: transform 0.22s ease, box-shadow 0.22s ease;
+  border-top: 6px solid #4F46E5;
+  user-select: none;
 }
 
-.flashcard-box:hover {
-  border-color: var(--primary);
+.fc-card-3d:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 24px 50px rgba(0, 0, 0, 0.34), 0 0 0 4px rgba(129, 140, 248, 0.35);
+}
+
+.fc-card-3d.is-flipped {
+  background: linear-gradient(180deg, #FFFBEB 0%, #FFFFFF 45%);
+  border-top-color: #F59E0B;
+}
+
+.fc-card-3d.card-mastered {
+  border-top-color: #10B981;
+}
+
+.fc-card-top-meta {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
 }
 
 .fc-word {
-  font-size: 2rem;
-  font-weight: 800;
-  color: var(--primary);
-  margin-bottom: 6px;
+  font-size: 2.5rem;
+  font-weight: 900;
+  color: #1E1B4B;
+  margin-bottom: 4px;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
 }
 
 .fc-ipa {
-  font-size: 1.05rem;
-  color: var(--text-muted);
-  font-family: monospace;
-  margin-bottom: 12px;
+  font-size: 1.15rem;
+  color: #475569;
+  font-family: 'Segoe UI', monospace;
+  margin-bottom: 16px;
+  background: #F1F5F9;
+  padding: 3px 14px;
+  border-radius: 99px;
+  display: inline-block;
 }
 
 .fc-type {
   display: inline-block;
-  padding: 2px 10px;
-  background: var(--primary-light);
-  color: var(--primary);
+  padding: 4px 12px;
+  background: #EEF2FF;
+  color: #4338CA;
+  border: 1px solid #C7D2FE;
   border-radius: 99px;
   font-size: 0.8rem;
-  font-weight: 700;
-  margin-bottom: 14px;
+  font-weight: 800;
 }
 
 .fc-meaning {
-  font-size: 1.35rem;
-  font-weight: 700;
+  font-size: 1.6rem;
+  font-weight: 900;
   color: #0F172A;
+  margin: 6px 0 14px;
+  line-height: 1.3;
+}
+
+.fc-example-box {
+  background: #F8FAFC;
+  border: 1px solid #E2E8F0;
+  border-left: 4px solid #4F46E5;
+  padding: 12px 16px;
+  border-radius: 12px;
+  width: 100%;
+  text-align: left;
   margin-bottom: 12px;
 }
 
 .fc-example {
-  font-size: 0.95rem;
-  color: #334155;
+  font-size: 0.98rem;
+  color: #1E293B;
+  font-weight: 600;
   font-style: italic;
   margin-bottom: 4px;
 }
 
 .fc-example-vi {
   font-size: 0.86rem;
-  color: var(--text-muted);
-  margin-bottom: 12px;
+  color: #64748B;
 }
 
 .fc-tip {
-  background: var(--warning-light);
+  background: #FEF3C7;
+  border: 1px solid #FDE68A;
   color: #92400E;
-  padding: 8px 14px;
-  border-radius: var(--radius-sm);
-  font-size: 0.84rem;
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-size: 0.85rem;
   font-weight: 600;
   width: 100%;
+  text-align: left;
+}
+
+.fc-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 14px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #64748B;
+  background: #F1F5F9;
+  padding: 5px 14px;
+  border-radius: 999px;
 }
 
 .fc-controls {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  margin-top: 16px;
+  gap: 12px;
+  margin-top: 20px;
   flex-wrap: wrap;
 }
 
-/* Vocabulary Table */
+.fc-nav-btn {
+  background: rgba(255, 255, 255, 0.12);
+  color: white;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  padding: 11px 18px;
+  border-radius: 12px;
+  font-weight: 700;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.fc-nav-btn:hover {
+  background: rgba(255, 255, 255, 0.22);
+  border-color: white;
+}
+
+.fc-mark-learned-btn {
+  flex: 1;
+  min-width: 220px;
+  background: linear-gradient(135deg, #10B981 0%, #059669 100%);
+  color: white;
+  border: none;
+  padding: 12px 20px;
+  border-radius: 12px;
+  font-weight: 800;
+  font-size: 0.95rem;
+  cursor: pointer;
+  box-shadow: 0 6px 18px rgba(16, 185, 129, 0.35);
+  transition: all 0.2s;
+}
+
+.fc-mark-learned-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 22px rgba(16, 185, 129, 0.5);
+}
+
+.fc-already-learned-group {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.fc-learned-locked-pill {
+  background: rgba(16, 185, 129, 0.22);
+  border: 1.5px solid #34D399;
+  color: #D1FAE5;
+  padding: 10px 18px;
+  border-radius: 12px;
+  font-weight: 800;
+  font-size: 0.9rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.fc-unmark-sub-btn {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px dashed rgba(255, 255, 255, 0.3);
+  color: #CBD5E1;
+  padding: 8px 12px;
+  border-radius: 10px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.fc-unmark-sub-btn:hover {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: #FCA5A5;
+  color: #FECACA;
+}
+
+/* 2. Bảng Tổng Hợp Từ Vựng (Vocabulary Reference Table / Grid) */
+.vocab-summary-panel {
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 24px;
+  box-shadow: var(--shadow-sm);
+}
+
+.vocab-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.vocab-status-tabs {
+  display: inline-flex;
+  background: #F1F5F9;
+  padding: 4px;
+  border-radius: 10px;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.vocab-status-tab {
+  border: none;
+  background: transparent;
+  padding: 7px 14px;
+  border-radius: 8px;
+  font-size: 0.84rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.18s;
+}
+
+.vocab-status-tab.active {
+  background: white;
+  color: var(--primary);
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.08);
+}
+
+.vocab-list-grid,
 .vocab-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 16px;
 }
 
 .vocab-item {
-  background: white;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  padding: 16px;
+  background: #FFFFFF;
+  border: 1.5px solid #E2E8F0;
+  border-left: 5px solid #4F46E5;
+  border-radius: 14px;
+  padding: 18px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  gap: 10px;
+  gap: 12px;
+  transition: box-shadow 0.2s, transform 0.2s;
+}
+
+.vocab-item:hover {
+  box-shadow: var(--shadow-md);
 }
 
 .vocab-item.learned {
-  border-color: #6EE7B7;
-  background: #F0FDF4;
+  border-color: #CBD5E1;
+  border-left: 5px solid #10B981;
+  background: #F8FAFC;
 }
 
 .vocab-item-header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 8px;
+  gap: 10px;
 }
 
 .vocab-word-title {
-  font-size: 1.1rem;
+  font-size: 1.2rem;
+  font-weight: 900;
+  color: #1E1B4B;
+}
+
+.vocab-meaning-text {
+  font-size: 1.02rem;
   font-weight: 800;
-  color: var(--primary);
+  color: #0F172A;
+  margin: 6px 0 6px;
+}
+
+.vocab-item-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed #E2E8F0;
+}
+
+.vocab-learned-safe-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.82rem;
+  font-weight: 800;
+  color: #047857;
+  background: #D1FAE5;
+  padding: 5px 12px;
+  border-radius: 999px;
+}
+
+.vocab-reset-mini-btn {
+  background: transparent;
+  border: 1px solid #CBD5E1;
+  color: #64748B;
+  font-size: 0.76rem;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.vocab-reset-mini-btn:hover {
+  border-color: #EF4444;
+  color: #DC2626;
+  background: #FEF2F2;
 }
 
 .speaker-btn {
-  background: var(--primary-light);
+  background: #EEF2FF;
   color: var(--primary);
-  border: none;
-  width: 34px;
-  height: 34px;
+  border: 1px solid #C7D2FE;
+  width: 38px;
+  height: 38px;
   border-radius: 50%;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 1rem;
+  font-size: 1.05rem;
+  flex-shrink: 0;
   transition: all 0.2s;
 }
 
 .speaker-btn:hover {
   background: var(--primary);
   color: white;
+  transform: scale(1.06);
 }
 
 /* Grammar Cards */
