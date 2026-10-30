@@ -430,7 +430,7 @@
       logoEl.style.background = "linear-gradient(135deg, var(--primary), var(--secondary))";
     }
     if (titleEl) titleEl.textContent = "English Young 8";
-    if (subEl) subEl.textContent = "Global Success • Học kì 1 (Unit 1 – Unit 6)";
+    if (subEl) subEl.textContent = "Global Success • Học kì 1";
 
     if (previewBarRoot) {
       previewBarRoot.innerHTML = isAdmin
@@ -455,27 +455,27 @@
           ${pendingTasksCount > 0 ? `<span class="badge-count" style="background:#F59E0B;">${pendingTasksCount}</span>` : ""}
         </button>
         <button class="nav-tab ${state.currentTab === "unit-study" ? "active" : ""}" onclick="switchMainTab('unit-study')">
-          📚 Học Theo Unit (1–6)
+          📚 Học Unit (1–6)
         </button>
         <button class="nav-tab ${state.currentTab === "exams" ? "active" : ""}" onclick="switchMainTab('exams')">
-          📝 Phòng Luyện Đề Thi
+          📝 Luyện Đề Thi
         </button>
         <button class="nav-tab ${state.currentTab === "mistakes" ? "active" : ""}" onclick="switchMainTab('mistakes')">
-          📓 Sổ Tay Câu Sai
+          📓 Sổ Câu Sai
           ${stats.mistakeCount > 0 ? `<span class="badge-count">${stats.mistakeCount}</span>` : ""}
         </button>
         <button class="nav-tab ${state.currentTab === "student-progress" ? "active" : ""}" onclick="switchMainTab('student-progress')">
-          🏆 Thành Tích Của Em
+          🏆 Thành Tích
         </button>
       `;
     }
 
     if (userContainer) {
       userContainer.innerHTML = `
-        <div class="user-menu-pill">
+        <div class="user-menu-pill" style="flex-shrink:0; white-space:nowrap;">
           <div class="user-menu-avatar">🎓</div>
           <div>
-            <div style="font-weight:700; line-height:1.2; font-size:0.86rem;">${currentUser.fullName}</div>
+            <div style="font-weight:700; line-height:1.15; font-size:0.84rem;">${currentUser.fullName}</div>
             <span class="user-role-tag student">Học sinh Lớp 8</span>
           </div>
           <button class="btn-auth-action" onclick="handleLogout()" title="Đăng xuất khỏi tài khoản">
@@ -821,22 +821,71 @@
   };
 
   // =========================================================================
-  // 1. STUDENT PORTAL: BÀN HỌC CỦA EM (DASHBOARD)
+  // 1. STUDENT PORTAL: BÀN HỌC CỦA EM (DASHBOARD / COMMAND CENTER)
   // =========================================================================
   function renderDashboard(stats) {
     const units = window.STUDY_DATA.units || [];
+    const exams = window.STUDY_DATA.exams || [];
+    const currentUser = (window.EY8_Supabase && window.EY8_Supabase.getCurrentUser()) || {
+      fullName: "Học sinh"
+    };
     const assignedTasks = getStudentAssignedTasks();
 
+    // Tìm Unit học sinh đang học dở (hoặc Unit đầu tiên chưa hoàn thành)
+    let activeUnit = units[0];
+    for (let i = 0; i < units.length; i++) {
+      const u = units[i];
+      const lCount = u.vocabulary.filter((v) => state.learnedVocab[v.id]).length;
+      const qScore = state.unitScores[u.id];
+      const isStarted = lCount > 0 || qScore !== undefined;
+      const isDone = lCount === u.vocabulary.length && qScore !== undefined && qScore >= u.practice.length * 0.8;
+      if (isStarted && !isDone) {
+        activeUnit = u;
+        break;
+      }
+    }
+    if (!activeUnit) activeUnit = units[0];
+
+    const activeLearnedV = activeUnit.vocabulary.filter((v) => state.learnedVocab[v.id]).length;
+    const activeTotalV = activeUnit.vocabulary.length;
+    const activeUnlearnedList = activeUnit.vocabulary.filter((v) => !state.learnedVocab[v.id]);
+    const activeBestQuiz = state.unitScores[activeUnit.id];
+
+    // Chọn 1 từ vựng chưa thuộc tiêu biểu trong ngày để hiển thị ở Sidebar
+    let spotlightVocab = activeUnlearnedList[0] || null;
+    let spotlightUnit = activeUnit;
+    if (!spotlightVocab) {
+      for (const u of units) {
+        const found = u.vocabulary.find((v) => !state.learnedVocab[v.id]);
+        if (found) {
+          spotlightVocab = found;
+          spotlightUnit = u;
+          break;
+        }
+      }
+    }
+    if (!spotlightVocab && activeUnit && activeUnit.vocabulary.length > 0) {
+      spotlightVocab = activeUnit.vocabulary[0];
+    }
+
+    // Tính % tiến độ Học kì 1
+    const vocabPct = stats.totalVocab > 0 ? Math.round((stats.learnedCount / stats.totalVocab) * 100) : 0;
+    const unitPct = stats.totalUnits > 0 ? Math.round((stats.completedUnits / stats.totalUnits) * 100) : 0;
+    const avgScoreNum = stats.avgExamScore !== "--" ? Number(stats.avgExamScore) : 0;
+    const examScorePct = Math.min(100, Math.round(avgScoreNum * 10));
+    const overallMasteryPct = Math.round((vocabPct + unitPct + (stats.examCount > 0 ? examScorePct : 0)) / (stats.examCount > 0 ? 3 : 2));
+
+    // Nhiệm vụ được Admin giao
     const assignedTasksHtml =
       assignedTasks.length > 0
         ? `
         <div class="assigned-tasks-panel">
           <div class="assigned-tasks-header">
             <div>
-              <h3 style="font-size:1.15rem; font-weight:800; color:#92400E;">
+              <h3 style="font-size:1.12rem; font-weight:800; color:#92400E;">
                 📌 Nhiệm Vụ Học Tập Anh/Chị Giao Cho Em (${assignedTasks.filter((x) => x.isCompleted).length}/${assignedTasks.length} hoàn thành)
               </h3>
-              <p style="font-size:0.85rem; color:#B45309;">Hãy hoàn thành các bài tập dưới đây đúng hạn và đạt điểm mục tiêu nhé!</p>
+              <p style="font-size:0.84rem; color:#B45309;">Hãy hoàn thành các bài tập dưới đây đúng hạn và đạt điểm mục tiêu nhé!</p>
             </div>
           </div>
           <div class="assigned-task-grid">
@@ -846,12 +895,12 @@
                 <div class="assigned-task-card ${t.isCompleted ? "completed" : ""}">
                   <div>
                     <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:6px;">
-                      <span style="font-size:0.75rem; font-weight:800; padding:3px 9px; border-radius:99px; background:${t.isCompleted ? "#10B981" : "#F59E0B"}; color:white;">
+                      <span style="font-size:0.74rem; font-weight:800; padding:3px 9px; border-radius:99px; background:${t.isCompleted ? "#10B981" : "#F59E0B"}; color:white;">
                         ${t.isCompleted ? "✅ ĐÃ HOÀN THÀNH" : "⏳ CẦN LÀM"}
                       </span>
                       <span style="font-size:0.78rem; color:var(--text-muted); font-weight:600;">📅 Hạn: ${t.dueDate || "Trong tuần"}</span>
                     </div>
-                    <h4 style="font-size:1rem; font-weight:800; color:var(--text-main); margin-bottom:4px;">${t.title}</h4>
+                    <h4 style="font-size:0.98rem; font-weight:800; color:var(--text-main); margin-bottom:4px;">${t.title}</h4>
                     <div style="font-size:0.82rem; color:#475569; margin-bottom:6px;">
                       🎯 Yêu cầu đạt: <strong>≥ ${t.minScore} điểm</strong> • Hiện tại: <strong>${t.bestScoreText}</strong>
                     </div>
@@ -873,40 +922,119 @@
       `
         : "";
 
+    // Danh sách thẻ 6 Unit đã nâng cấp
     const unitCardsHtml = units
       .map((u) => {
         const totalV = u.vocabulary.length;
         const learnedV = u.vocabulary.filter((v) => state.learnedVocab[v.id]).length;
-        const pct = Math.round((learnedV / totalV) * 100);
+        const vPct = Math.round((learnedV / totalV) * 100);
+        const totalQ = u.practice.length;
         const bestQuiz = state.unitScores[u.id];
+        const qPct = bestQuiz !== undefined ? Math.round((bestQuiz / totalQ) * 100) : 0;
+        const quizScore10 = bestQuiz !== undefined ? ((bestQuiz / totalQ) * 10).toFixed(1) : null;
+
+        const isCompleted = learnedV === totalV && bestQuiz !== undefined && qPct >= 80;
+        const isInProgress = !isCompleted && (learnedV > 0 || bestQuiz !== undefined);
+
+        let statusClass = "status-not-started";
+        let chipClass = "not-started";
+        let chipText = "⚪ Chưa học";
+        if (isCompleted) {
+          statusClass = "status-completed";
+          chipClass = "completed";
+          chipText = "✅ Đã hoàn thành";
+        } else if (isInProgress) {
+          statusClass = "status-in-progress";
+          chipClass = "in-progress";
+          chipText = "🔥 Đang học dở";
+        }
 
         return `
-          <div class="unit-card" onclick="openUnitWithSubTab('${u.id}', 'vocab')">
+          <div class="unit-card-modern ${statusClass}" onclick="openUnitWithSubTab('${u.id}', 'vocab')">
             <div>
-              <div class="unit-card-top">
-                <div class="unit-icon" style="background: ${u.color}">${u.icon}</div>
-                <div>
-                  <div class="unit-badge" style="color: ${u.color}">UNIT ${u.number} • HỌC KÌ 1</div>
-                  <div class="unit-title">${u.title}</div>
-                  <div class="unit-vi-title">${u.viTitle}</div>
+              <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:10px; margin-bottom:12px;">
+                <div style="display:flex; align-items:center; gap:12px;">
+                  <div class="unit-icon" style="background:${u.color}; width:46px; height:46px; font-size:1.4rem;">${u.icon}</div>
+                  <div>
+                    <div class="unit-badge" style="color:${u.color}">UNIT ${u.number} • HỌC KÌ 1</div>
+                    <div class="unit-title" style="font-size:1.1rem;">${u.title}</div>
+                    <div class="unit-vi-title">${u.viTitle}</div>
+                  </div>
+                </div>
+                <span class="unit-status-chip ${chipClass}">${chipText}</span>
+              </div>
+
+              <p class="unit-summary" style="margin-bottom:0;">${u.summary}</p>
+            </div>
+
+            <div>
+              <div class="unit-dual-metrics">
+                <div class="unit-metric-line">
+                  <div class="unit-metric-label">
+                    <span>📚 Từ vựng đã thuộc</span>
+                    <strong>${learnedV}/${totalV} từ (${vPct}%)</strong>
+                  </div>
+                  <div class="mastery-bar-track" style="height:6px; background:#E2E8F0;">
+                    <div class="mastery-bar-fill" style="width:${vPct}%; background:${u.color};"></div>
+                  </div>
+                </div>
+
+                <div class="unit-metric-line">
+                  <div class="unit-metric-label">
+                    <span>🎯 Bài tập thực hành</span>
+                    <strong>${
+                      bestQuiz !== undefined
+                        ? `${bestQuiz}/${totalQ} câu (${quizScore10}đ)`
+                        : "Chưa làm"
+                    }</strong>
+                  </div>
+                  <div class="mastery-bar-track" style="height:6px; background:#E2E8F0;">
+                    <div class="mastery-bar-fill" style="width:${qPct}%; background:#10B981;"></div>
+                  </div>
                 </div>
               </div>
-              <p class="unit-summary">${u.summary}</p>
-            </div>
-            <div>
-              <div class="unit-progress-bar">
-                <div class="unit-progress-fill" style="width: ${pct}%; background: ${u.color}"></div>
-              </div>
-              <div class="unit-meta">
-                <span>📚 Đã thuộc: <strong>${learnedV}/${totalV} từ</strong> (${pct}%)</span>
-                <span>🎯 Bài tập: <strong>${bestQuiz !== undefined ? bestQuiz + "/" + u.practice.length : "Chưa làm"}</strong></span>
-              </div>
-              <div class="unit-actions" onclick="event.stopPropagation()">
-                <button class="btn btn-outline btn-sm" style="flex:1" onclick="openUnitWithSubTab('${u.id}', 'vocab')">Từ vựng</button>
-                <button class="btn btn-outline btn-sm" style="flex:1" onclick="openUnitWithSubTab('${u.id}', 'grammar')">Ngữ pháp</button>
-                <button class="btn btn-primary btn-sm" style="flex:1; background:${u.color}" onclick="openUnitWithSubTab('${u.id}', 'practice')">Luyện tập</button>
+
+              <div class="unit-step-buttons" style="margin-top:12px;" onclick="event.stopPropagation()">
+                <button class="unit-step-btn" onclick="openUnitWithSubTab('${u.id}', 'vocab')">
+                  🃏 Từ vựng
+                </button>
+                <button class="unit-step-btn" onclick="openUnitWithSubTab('${u.id}', 'grammar')">
+                  📐 Ngữ pháp
+                </button>
+                <button class="unit-step-btn primary-step" style="background:${u.color}" onclick="openUnitWithSubTab('${u.id}', 'practice')">
+                  ✍️ Luyện tập
+                </button>
               </div>
             </div>
+          </div>
+        `;
+      })
+      .join("");
+
+    // Danh sách 4 đề thi tiêu biểu ở cột phải
+    const featuredExams = exams.slice(0, 4);
+    const quickExamsHtml = featuredExams
+      .map((ex) => {
+        const attempts = state.examHistory.filter((h) => h.examId === ex.id);
+        const bestScore =
+          attempts.length > 0 ? Math.max(...attempts.map((a) => Number(a.score10 || 0))) : null;
+        return `
+          <div class="quick-exam-item">
+            <div style="min-width:0;">
+              <div style="font-size:0.84rem; font-weight:800; color:var(--text-main); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+                ${ex.title}
+              </div>
+              <div style="font-size:0.75rem; color:var(--text-muted);">
+                ⏱️ ${ex.durationMinutes} phút • ${ex.questions.length} câu ${
+                  bestScore !== null
+                    ? `• <strong style="color:${bestScore >= 7 ? "#059669" : "#D97706"}">Cao nhất: ${bestScore}đ</strong>`
+                    : "• Chưa thi"
+                }
+              </div>
+            </div>
+            <button class="btn btn-outline btn-sm" style="flex-shrink:0; padding:5px 10px; font-size:0.76rem;" onclick="startExamById('${ex.id}')">
+              ${bestScore !== null ? "Thi lại" : "Làm đề ➔"}
+            </button>
           </div>
         `;
       })
@@ -915,60 +1043,236 @@
     return `
       ${assignedTasksHtml}
 
-      <div class="hero-banner">
-        <div class="hero-content">
-          <span class="hero-tag">✨ Chương trình GDPT Mới • Tiếng Anh 8 Global Success</span>
-          <h2>Chinh phục Kì thi Học kì 1 Lớp 8 thật dễ dàng!</h2>
-          <p>Hệ thống ôn tập trọn bộ <strong>Unit 1 đến Unit 6</strong> gồm Flashcard phát âm chuẩn, tóm tắt ngữ pháp + mẹo tránh bẫy đề thi, cùng bộ đề kiểm tra 15 phút, Giữa kì 1 và Cuối kì 1 chấm điểm tự động.</p>
-          <div class="hero-actions">
-            <button class="btn btn-white" onclick="switchMainTab('unit-study', 'unit-1')">🚀 Bắt đầu ôn từng Unit</button>
-            <button class="btn btn-outline-white" onclick="startExamById('exam-final-1')">📝 Thi thử Đề Cuối Kì 1 ngay</button>
+      <!-- TẦNG 1: WELCOME HUB 2 CỘT (TRÁI: TIẾP TỤC HỌC THÔNG MINH | PHẢI: TIẾN ĐỘ HỌC KÌ 1) -->
+      <div class="dashboard-welcome-hub">
+        <div class="welcome-hero-card">
+          <div>
+            <div class="welcome-user-greeting" style="margin-bottom:10px;">
+              <span class="welcome-pill-tag">✨ Tiếng Anh 8 Global Success • Học kì 1</span>
+              <span style="font-size:0.8rem; color:#C7D2FE; font-weight:600;">
+                🎓 Tài khoản: <strong style="color:white;">${currentUser.fullName}</strong>
+              </span>
+            </div>
+            <h2 style="font-size:1.55rem; font-weight:900; line-height:1.25; margin-bottom:6px;">
+              Chào ${currentUser.fullName}, cùng bứt phá điểm số hôm nay nhé! 🚀
+            </h2>
+            <p style="font-size:0.9rem; color:#E0E7FF;">
+              Hệ thống đã tự động ghi nhớ tiến độ học của em. Hãy tiếp tục bài học đang dang dở bên dưới:
+            </p>
+          </div>
+
+          <div class="continue-study-spotlight">
+            <div style="display:flex; align-items:center; gap:12px;">
+              <div class="unit-icon" style="background:${activeUnit.color}; width:48px; height:48px; font-size:1.45rem; border:2px solid rgba(255,255,255,0.4);">
+                ${activeUnit.icon}
+              </div>
+              <div>
+                <div style="font-size:0.74rem; font-weight:800; color:#FDE68A; text-transform:uppercase; letter-spacing:0.04em;">
+                  📍 ĐANG HỌC DỞ • UNIT ${activeUnit.number}
+                </div>
+                <div style="font-size:1.05rem; font-weight:800; color:white;">
+                  ${activeUnit.title} (${activeUnit.viTitle})
+                </div>
+                <div style="font-size:0.8rem; color:#E0E7FF;">
+                  Đã thuộc: <strong>${activeLearnedV}/${activeTotalV} từ</strong> • Bài tập: <strong>${
+                    activeBestQuiz !== undefined ? activeBestQuiz + "/" + activeUnit.practice.length + " câu" : "Chưa làm"
+                  }</strong>
+                </div>
+              </div>
+            </div>
+
+            <div style="display:flex; gap:8px; flex-wrap:wrap;">
+              <button class="btn btn-white btn-sm" style="padding:9px 15px; font-weight:800;" onclick="openUnitWithSubTab('${activeUnit.id}', 'vocab')">
+                ▶ Học tiếp Từ vựng (${activeTotalV - activeLearnedV} từ còn lại)
+              </button>
+              <button class="btn btn-outline-white btn-sm" style="padding:9px 14px;" onclick="openUnitWithSubTab('${activeUnit.id}', 'practice')">
+                ✍️ Làm bài tập
+              </button>
+            </div>
           </div>
         </div>
-        <div style="background: rgba(255,255,255,0.14); padding: 18px 22px; border-radius: 16px; min-width: 240px; backdrop-filter: blur(6px);">
-          <div style="font-size:0.82rem; color:#E0E7FF; margin-bottom:6px;">🎯 Mục tiêu Học kì 1</div>
-          <div style="font-size:1.15rem; font-weight:800; margin-bottom:8px;">6 Units • ${stats.totalVocab} Từ trọng tâm</div>
-          <div style="font-size:0.85rem; color:#E0E7FF;">• Bài tập củng cố từng Unit<br>• ${(window.STUDY_DATA.exams || []).length} Đề thi (15p, Giữa kì, Cuối kì)<br>• Tự động lưu lại câu làm sai</div>
+
+        <!-- Cột Phải Tầng 1: Bảng Tiến Độ Tổng Quan Học Kì 1 -->
+        <div class="semester-mastery-card">
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+            <div>
+              <h3 style="font-size:1.05rem; font-weight:800; color:var(--text-main);">📊 Tiến Độ Học Kì 1 Của Em</h3>
+              <p style="font-size:0.78rem; color:var(--text-muted);">Tổng hợp từ 6 Unit & Phòng luyện đề</p>
+            </div>
+            <span style="font-size:0.82rem; font-weight:800; padding:5px 12px; border-radius:99px; background:#EEF2FF; color:#4F46E5;">
+              Đạt ${overallMasteryPct}%
+            </span>
+          </div>
+
+          <div style="display:flex; flex-direction:column; gap:12px;">
+            <div class="mastery-metric-row">
+              <div class="mastery-metric-top">
+                <span>📖 Từ vựng HK1 đã thuộc</span>
+                <span style="color:#4F46E5;">${stats.learnedCount} / ${stats.totalVocab} từ (${vocabPct}%)</span>
+              </div>
+              <div class="mastery-bar-track">
+                <div class="mastery-bar-fill" style="width:${vocabPct}%; background:#4F46E5;"></div>
+              </div>
+            </div>
+
+            <div class="mastery-metric-row">
+              <div class="mastery-metric-top">
+                <span>✅ Bài tập thực hành 6 Unit</span>
+                <span style="color:#059669;">${stats.completedUnits} / ${stats.totalUnits} Unit (${unitPct}%)</span>
+              </div>
+              <div class="mastery-bar-track">
+                <div class="mastery-bar-fill" style="width:${unitPct}%; background:#10B981;"></div>
+              </div>
+            </div>
+
+            <div class="mastery-metric-row">
+              <div class="mastery-metric-top">
+                <span>🏆 Điểm TB Luyện đề (${stats.examCount} lượt)</span>
+                <span style="color:#D97706;">${stats.avgExamScore} / 10 điểm</span>
+              </div>
+              <div class="mastery-bar-track">
+                <div class="mastery-bar-fill" style="width:${examScorePct}%; background:#F59E0B;"></div>
+              </div>
+            </div>
+          </div>
+
+          <div style="display:flex; justify-content:space-between; align-items:center; padding-top:8px; border-top:1px dashed var(--border); font-size:0.8rem;">
+            <span style="color:var(--text-muted);">☁️ Đã đồng bộ tự động</span>
+            <button class="btn-auth-action" style="color:var(--primary); font-weight:700;" onclick="switchMainTab('student-progress')">
+              Xem báo cáo chi tiết ➔
+            </button>
+          </div>
         </div>
       </div>
 
-      <div class="stats-grid">
-        <div class="stat-card">
-          <div class="stat-icon" style="background: #EEF2FF; color: #4F46E5;">📖</div>
-          <div class="stat-info">
-            <h3>${stats.learnedCount} / ${stats.totalVocab}</h3>
-            <p>Từ vựng HK1 đã thuộc</p>
+      <!-- TẦNG 2: 3 HÀNH ĐỘNG ƯU TIÊN TRONG NGÀY (PRIORITY ACTION STRIP) -->
+      <div class="priority-actions-grid">
+        <div class="priority-action-card active-study" onclick="openUnitWithSubTab('${activeUnit.id}', 'vocab')">
+          <div style="display:flex; align-items:center; gap:12px;">
+            <div class="priority-icon-box" style="background:#EEF2FF; color:#4F46E5;">🃏</div>
+            <div>
+              <div style="font-size:0.74rem; font-weight:800; color:#4F46E5; text-transform:uppercase;">Bước 1 • Học Flashcard</div>
+              <div style="font-size:0.96rem; font-weight:800; color:var(--text-main);">
+                Unit ${activeUnit.number} còn ${activeTotalV - activeLearnedV} từ chưa thuộc
+              </div>
+              <div style="font-size:0.78rem; color:var(--text-muted);">Bấm để mở các thẻ từ chưa thuộc</div>
+            </div>
           </div>
+          <span style="font-weight:800; color:#4F46E5; font-size:1.1rem;">➔</span>
         </div>
-        <div class="stat-card">
-          <div class="stat-icon" style="background: #D1FAE5; color: #059669;">✅</div>
-          <div class="stat-info">
-            <h3>${stats.completedUnits} / ${stats.totalUnits} Unit</h3>
-            <p>Đã hoàn thành bài tập</p>
+
+        <div class="priority-action-card ${stats.mistakeCount > 0 ? "urgent-alert" : ""}" onclick="switchMainTab('mistakes')">
+          <div style="display:flex; align-items:center; gap:12px;">
+            <div class="priority-icon-box" style="background:#FEE2E2; color:#DC2626;">📓</div>
+            <div>
+              <div style="font-size:0.74rem; font-weight:800; color:#DC2626; text-transform:uppercase;">Bước 2 • Gỡ Câu Hay Sai</div>
+              <div style="font-size:0.96rem; font-weight:800; color:var(--text-main);">
+                ${stats.mistakeCount > 0 ? `Đang có ${stats.mistakeCount} câu sai cần ôn lại` : "Tuyệt vời! 0 câu tồn đọng"}
+              </div>
+              <div style="font-size:0.78rem; color:var(--text-muted);">
+                ${stats.mistakeCount > 0 ? "Làm đúng lại để xóa khỏi sổ tay" : "Em đã nắm vững các câu từng sai"}
+              </div>
+            </div>
           </div>
+          <span style="font-weight:800; color:#DC2626; font-size:1.1rem;">➔</span>
         </div>
-        <div class="stat-card">
-          <div class="stat-icon" style="background: #FEF3C7; color: #D97706;">🏆</div>
-          <div class="stat-info">
-            <h3>${stats.avgExamScore} điểm</h3>
-            <p>Điểm TB (${stats.examCount} lượt thi)</p>
+
+        <div class="priority-action-card exam-ready" onclick="switchMainTab('exams')">
+          <div style="display:flex; align-items:center; gap:12px;">
+            <div class="priority-icon-box" style="background:#FEF3C7; color:#D97706;">⏱️</div>
+            <div>
+              <div style="font-size:0.74rem; font-weight:800; color:#B45309; text-transform:uppercase;">Bước 3 • Phòng Luyện Đề</div>
+              <div style="font-size:0.96rem; font-weight:800; color:var(--text-main);">
+                ${exams.length} Đề kiểm tra 15p, Giữa kì & Cuối kì
+              </div>
+              <div style="font-size:0.78rem; color:var(--text-muted);">Bấm giờ tự động & giải thích chi tiết</div>
+            </div>
           </div>
-        </div>
-        <div class="stat-card" style="cursor:pointer" onclick="switchMainTab('mistakes')">
-          <div class="stat-icon" style="background: #FEE2E2; color: #DC2626;">📓</div>
-          <div class="stat-info">
-            <h3>${stats.mistakeCount} câu</h3>
-            <p>Cần ôn lại trong Sổ tay</p>
-          </div>
+          <span style="font-weight:800; color:#D97706; font-size:1.1rem;">➔</span>
         </div>
       </div>
 
-      <div class="section-header">
-        <h2>📚 Lộ trình 6 Unit Học kì 1 (Global Success 8)</h2>
-        <span style="font-size: 0.86rem; color: var(--text-muted);">Bấm vào từng Unit để học Flashcard, Ngữ pháp & làm bài tập</span>
-      </div>
-      <div class="units-grid">
-        ${unitCardsHtml}
+      <!-- TẦNG 3: BỐ CỤC 2 CỘT (TRÁI: LỘ TRÌNH 6 UNIT | PHẢI: TIỆN ÍCH HỌC NHANH) -->
+      <div class="dashboard-main-layout">
+        <!-- Cột Trái: 6 Unit -->
+        <div>
+          <div class="section-header" style="margin-bottom:14px;">
+            <h2>📚 Lộ Trình 6 Unit Học Kì 1 (Global Success 8)</h2>
+            <span style="font-size: 0.83rem; color: var(--text-muted);">
+              Chọn từng Unit để học Từ vựng, Ngữ pháp & Bài tập
+            </span>
+          </div>
+          <div class="units-grid-modern">
+            ${unitCardsHtml}
+          </div>
+        </div>
+
+        <!-- Cột Phải: Tiện Ích Học Nhanh Ngay Trên Trang Chủ -->
+        <div class="dashboard-side-panel">
+          <!-- Widget 1: Từ vựng nhanh trong ngày -->
+          ${
+            spotlightVocab
+              ? `
+              <div class="side-widget-card">
+                <div class="side-widget-header">
+                  <h3>💡 Từ Vựng Cần Nhớ Hôm Nay</h3>
+                  <span style="font-size:0.72rem; font-weight:700; color:#4F46E5; background:#EEF2FF; padding:2px 8px; border-radius:99px;">
+                    Unit ${spotlightUnit.number}
+                  </span>
+                </div>
+                <div class="quick-word-box">
+                  <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:8px; margin-bottom:6px;">
+                    <div>
+                      <div style="font-size:1.35rem; font-weight:900; color:#1E1B4B; line-height:1.2;">
+                        ${spotlightVocab.word}
+                      </div>
+                      <div style="font-size:0.84rem; color:#64748B; font-family:monospace; margin-top:2px;">
+                        ${spotlightVocab.ipa} • <strong>${spotlightVocab.type}</strong>
+                      </div>
+                    </div>
+                    <button class="speaker-btn" onclick="speakEnglish('${spotlightVocab.word.replace(/'/g, "\\'")}', event)" title="Nghe phát âm">
+                      🔊
+                    </button>
+                  </div>
+                  <div style="font-size:1rem; font-weight:800; color:#0F172A; margin-bottom:6px;">
+                    👉 ${spotlightVocab.meaning}
+                  </div>
+                  <div style="font-size:0.82rem; color:#334155; font-style:italic; margin-bottom:4px;">
+                    "${spotlightVocab.example}"
+                  </div>
+                  <div style="font-size:0.77rem; color:#64748B; margin-bottom:10px;">
+                    (${spotlightVocab.exampleVi})
+                  </div>
+                  <div style="font-size:0.76rem; background:#FFFBEB; border:1px solid #FDE68A; color:#92400E; padding:6px 10px; border-radius:8px; margin-bottom:12px;">
+                    💡 ${spotlightVocab.tip}
+                  </div>
+                  <div style="display:flex; gap:8px;">
+                    <button class="btn btn-primary btn-sm" style="flex:1;" onclick="markVocabLearned('${spotlightVocab.id}', false)">
+                      ✅ Đã thuộc từ này
+                    </button>
+                    <button class="btn btn-outline btn-sm" onclick="openUnitWithSubTab('${spotlightUnit.id}', 'vocab')">
+                      Học Unit ${spotlightUnit.number}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            `
+              : ""
+          }
+
+          <!-- Widget 2: Đề Thi Thử Nhanh -->
+          <div class="side-widget-card">
+            <div class="side-widget-header">
+              <h3>📝 Đề Thi Thử Trọng Tâm</h3>
+              <button class="btn-auth-action" style="color:var(--primary); font-weight:700;" onclick="switchMainTab('exams')">
+                Tất cả (${exams.length}) ➔
+              </button>
+            </div>
+            <div>
+              ${quickExamsHtml}
+            </div>
+          </div>
+        </div>
       </div>
     `;
   }
