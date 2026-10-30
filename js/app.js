@@ -1,14 +1,25 @@
-// Logic điều khiển chính cho ứng dụng English Young 8 - Global Success
+// ==============================================================================
+// LOGIC ĐIỀU KHIỂN CHÍNH: ENGLISH YOUNG 8 (STUDENT PORTAL & ADMIN PORTAL)
+// ==============================================================================
 (function () {
-  const STORAGE_KEYS = {
+  const BASE_STORAGE_KEYS = {
     LEARNED_VOCAB: "ey8_learned_vocab_v1",
     UNIT_SCORES: "ey8_unit_scores_v1",
     EXAM_HISTORY: "ey8_exam_history_v1",
     MISTAKES: "ey8_mistakes_v1"
   };
 
+  // Lưu bản gốc của danh sách câu hỏi/đề thi trước khi ghép dữ liệu tùy chỉnh của Admin
+  const baseUnitsClone = JSON.parse(JSON.stringify(window.STUDY_DATA.units || []));
+  const baseExamsClone = JSON.parse(JSON.stringify(window.STUDY_DATA.exams || []));
+
   const state = {
-    currentTab: "dashboard", // dashboard | unit-study | exams | mistakes
+    // Auth Screen state
+    authScreenTab: "login", // 'login' | 'register'
+    showPassword: false,
+
+    // Student Portal state
+    currentTab: "dashboard", // dashboard | unit-study | exams | mistakes | student-progress
     selectedUnitId: "unit-1",
     unitSubTab: "vocab", // vocab | grammar | practice
     fcIndex: 0,
@@ -31,12 +42,42 @@
     mistakeAnswers: {},
     mistakeSubmitted: false,
 
-    // Persisted data
-    learnedVocab: loadJSON(STORAGE_KEYS.LEARNED_VOCAB, {}),
-    unitScores: loadJSON(STORAGE_KEYS.UNIT_SCORES, {}),
-    examHistory: loadJSON(STORAGE_KEYS.EXAM_HISTORY, []),
-    mistakes: loadJSON(STORAGE_KEYS.MISTAKES, {}) // key: questionId -> question object + wrongChoice + timestamp
+    // Admin Portal state
+    adminTab: "admin-monitor", // 'admin-monitor' | 'admin-assignments' | 'admin-content' | 'admin-users'
+    adminPreviewStudentMode: false,
+    adminSelectedStudent: "em_lop8",
+    allUsers: [],
+    inspectedStudentRecord: {
+      learnedVocab: {},
+      unitScores: {},
+      examHistory: [],
+      mistakes: {}
+    },
+
+    // System store (Nhiệm vụ giao bài & Đề/Câu hỏi do Admin thêm)
+    systemStore: {
+      assignments: [],
+      customQuestions: [],
+      customExams: []
+    },
+
+    // Dữ liệu học tập của học sinh đang đăng nhập
+    learnedVocab: {},
+    unitScores: {},
+    examHistory: [],
+    mistakes: {}
   };
+
+  function getActiveUsername() {
+    const u = window.EY8_Supabase ? window.EY8_Supabase.getCurrentUser() : null;
+    return u && u.username ? u.username.toLowerCase() : "em_lop8";
+  }
+
+  function getUserScopedKey(baseKey, username) {
+    const uName = (username || getActiveUsername()).toLowerCase();
+    if (uName === "em_lop8") return baseKey;
+    return `${baseKey}_${uName}`;
+  }
 
   function loadJSON(key, fallback) {
     try {
@@ -53,7 +94,78 @@
     } catch (e) {}
   }
 
-  // Phát âm tiếng Anh bằng Web Speech API của trình duyệt
+  // Nạp dữ liệu học tập cục bộ theo đúng học sinh đang đăng nhập
+  function loadActiveUserLocalProgress() {
+    const uName = getActiveUsername();
+    const snapRaw = localStorage.getItem(`ey8_snapshot_${uName}`);
+    if (snapRaw) {
+      try {
+        const snap = JSON.parse(snapRaw);
+        state.learnedVocab = snap.learnedVocab || {};
+        state.unitScores = snap.unitScores || {};
+        state.examHistory = snap.examHistory || [];
+        state.mistakes = snap.mistakes || {};
+        return;
+      } catch (e) {}
+    }
+
+    state.learnedVocab = loadJSON(getUserScopedKey(BASE_STORAGE_KEYS.LEARNED_VOCAB, uName), {});
+    state.unitScores = loadJSON(getUserScopedKey(BASE_STORAGE_KEYS.UNIT_SCORES, uName), {});
+    state.examHistory = loadJSON(getUserScopedKey(BASE_STORAGE_KEYS.EXAM_HISTORY, uName), []);
+    state.mistakes = loadJSON(getUserScopedKey(BASE_STORAGE_KEYS.MISTAKES, uName), {});
+  }
+
+  function persistActiveStudentState() {
+    const uName = getActiveUsername();
+    saveJSON(getUserScopedKey(BASE_STORAGE_KEYS.LEARNED_VOCAB, uName), state.learnedVocab);
+    saveJSON(getUserScopedKey(BASE_STORAGE_KEYS.UNIT_SCORES, uName), state.unitScores);
+    saveJSON(getUserScopedKey(BASE_STORAGE_KEYS.EXAM_HISTORY, uName), state.examHistory);
+    saveJSON(getUserScopedKey(BASE_STORAGE_KEYS.MISTAKES, uName), state.mistakes);
+
+    const snapshot = {
+      learnedVocab: state.learnedVocab,
+      unitScores: state.unitScores,
+      examHistory: state.examHistory,
+      mistakes: state.mistakes
+    };
+
+    if (window.EY8_Supabase && window.EY8_Supabase.saveStudentStateSnapshot) {
+      window.EY8_Supabase.saveStudentStateSnapshot(window.EY8_Supabase.getCurrentUser(), snapshot);
+    }
+  }
+
+  // Ghép đề thi & câu hỏi tùy chỉnh của Admin vào STUDY_DATA
+  function applyCustomContentToStudyData() {
+    const unitsCopy = JSON.parse(JSON.stringify(baseUnitsClone));
+    const examsCopy = JSON.parse(JSON.stringify(baseExamsClone));
+
+    const customExams = state.systemStore.customExams || [];
+    customExams.forEach((ce) => {
+      if (!examsCopy.some((e) => e.id === ce.id)) {
+        examsCopy.unshift(ce);
+      }
+    });
+
+    const customQuestions = state.systemStore.customQuestions || [];
+    customQuestions.forEach((cq) => {
+      if (cq.targetType === "unit") {
+        const u = unitsCopy.find((item) => item.id === cq.targetId);
+        if (u && u.practice && !u.practice.some((q) => q.id === cq.id)) {
+          u.practice.push(cq);
+        }
+      } else if (cq.targetType === "exam") {
+        const ex = examsCopy.find((item) => item.id === cq.targetId);
+        if (ex && ex.questions && !ex.questions.some((q) => q.id === cq.id)) {
+          ex.questions.push(cq);
+        }
+      }
+    });
+
+    window.STUDY_DATA.units = unitsCopy;
+    window.STUDY_DATA.exams = examsCopy;
+  }
+
+  // Phát âm tiếng Anh bằng Web Speech API
   window.speakEnglish = function (text, event) {
     if (event) event.stopPropagation();
     if (!("speechSynthesis" in window)) {
@@ -61,7 +173,6 @@
       return;
     }
     window.speechSynthesis.cancel();
-    // Làm sạch chuỗi nếu có kí hiệu phiên âm đi kèm (ví dụ "book /bʊk/" -> "book")
     const cleanText = text.split("/")[0].replace(/\(.*?\)/g, "").trim();
     const utter = new SpeechSynthesisUtterance(cleanText);
     utter.lang = "en-US";
@@ -82,10 +193,19 @@
     return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
   }
 
-  // Chuyển tab chính
+  window.handleBrandClick = function () {
+    if (!window.EY8_Supabase || !window.EY8_Supabase.isLoggedIn()) return;
+    if (window.EY8_Supabase.isAdmin() && !state.adminPreviewStudentMode) {
+      switchAdminTab("admin-monitor");
+    } else {
+      switchMainTab("dashboard");
+    }
+  };
+
+  // Chuyển tab dành cho Học sinh
   window.switchMainTab = function (tabName, unitId) {
     if (state.activeExam && !state.examSubmitted && tabName !== "exams") {
-      if (!confirm("Bạn đang làm dở bài thi. Bạn có chắc muốn thoát khỏi phòng thi không?")) {
+      if (!confirm("Em đang làm dở bài thi. Em có chắc muốn thoát khỏi phòng thi không?")) {
         return;
       }
       stopExamTimer();
@@ -99,8 +219,29 @@
       state.unitQuizAnswers = {};
       state.unitQuizSubmitted = false;
     }
-    if (tabName === "analytics") {
+    if (tabName === "student-progress" || tabName === "dashboard") {
       syncCloudData(true);
+    }
+    renderApp();
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  // Chuyển tab dành cho Admin
+  window.switchAdminTab = function (adminTabName) {
+    state.adminTab = adminTabName;
+    if (adminTabName === "admin-monitor") {
+      loadAdminInspectedStudent(state.adminSelectedStudent);
+    } else if (adminTabName === "admin-users") {
+      refreshAdminUsersList();
+    }
+    renderApp();
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  window.toggleAdminStudentPreview = function (enablePreview) {
+    state.adminPreviewStudentMode = !!enablePreview;
+    if (enablePreview) {
+      state.currentTab = "dashboard";
     }
     renderApp();
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -120,32 +261,34 @@
 
   window.notifyFutureSubject = function (subjectName) {
     alert(
-      `Môn "${subjectName} - Lớp 8" đã được thiết kế sẵn khung mở rộng!\n\nHiện tại bạn đang ở chế độ ưu tiên ôn tập Tiếng Anh 8 (Global Success - Học kì 1). Khi nào muốn thêm dữ liệu môn ${subjectName}, bạn chỉ cần bảo trợ lý AI tạo thêm file dữ liệu vào thư mục data/ nhé!`
+      `Môn "${subjectName} - Lớp 8" đã được thiết kế sẵn khung dữ liệu đa môn!\nHiện tại hệ thống đang mở khóa học Tiếng Anh 8 (Global Success).`
     );
   };
 
-  // Thống kê tổng quan
-  function getSummaryStats() {
+  // Thống kê tổng quan từ một bản ghi học tập bất kỳ
+  function computeStatsFromRecord(record) {
     const units = window.STUDY_DATA.units || [];
+    const learnedMap = (record && record.learnedVocab) || {};
+    const uScores = (record && record.unitScores) || {};
+    const eHistory = (record && record.examHistory) || [];
+    const mMap = (record && record.mistakes) || {};
+
     let totalVocab = 0;
     let learnedCount = 0;
     units.forEach((u) => {
       u.vocabulary.forEach((v) => {
         totalVocab++;
-        if (state.learnedVocab[v.id]) learnedCount++;
+        if (learnedMap[v.id]) learnedCount++;
       });
     });
 
-    const completedUnits = Object.keys(state.unitScores).length;
-    const examCount = state.examHistory.length;
+    const completedUnits = Object.keys(uScores).length;
+    const examCount = eHistory.length;
     const avgExamScore =
       examCount > 0
-        ? (
-            state.examHistory.reduce((acc, item) => acc + item.score10, 0) /
-            examCount
-          ).toFixed(1)
+        ? (eHistory.reduce((acc, item) => acc + Number(item.score10 || 0), 0) / examCount).toFixed(1)
         : "--";
-    const mistakeCount = Object.keys(state.mistakes).length;
+    const mistakeCount = Object.keys(mMap).length;
 
     return {
       totalVocab,
@@ -158,53 +301,169 @@
     };
   }
 
-  // ==========================================
-  // RENDER TOÀN TRANG
-  // ==========================================
+  function getSummaryStats() {
+    return computeStatsFromRecord(state);
+  }
+
+  // =========================================================================
+  // RENDER TOÀN TRANG (PHÂN LUỒNG: AUTH SCREEN | ADMIN PORTAL | STUDENT PORTAL)
+  // =========================================================================
   function renderApp() {
-    const stats = getSummaryStats();
+    const topBar = document.getElementById("top-subject-bar");
+    const mainHeader = document.getElementById("main-header");
+    const previewBarRoot = document.getElementById("admin-preview-bar-root");
+    const navTabsEl = document.getElementById("main-nav-tabs");
+    const userContainer = document.getElementById("header-user-container");
+    const root = document.getElementById("app-root");
 
-    // Cập nhật trạng thái nút nav-tab
-    document.querySelectorAll(".nav-tab").forEach((btn) => {
-      const t = btn.getAttribute("data-tab");
-      btn.classList.toggle("active", t === state.currentTab);
-    });
+    if (!root) return;
 
-    // Cập nhật badge số câu sai trên thanh menu
-    const mistakeBadge = document.getElementById("nav-mistake-badge");
-    if (mistakeBadge) {
-      mistakeBadge.textContent = stats.mistakeCount;
-      mistakeBadge.style.display = stats.mistakeCount > 0 ? "inline-block" : "none";
+    const isLoggedIn = window.EY8_Supabase && window.EY8_Supabase.isLoggedIn();
+
+    // 1. NẾU CHƯA ĐĂNG NHẬP -> HIỂN THỊ TRANG ĐĂNG NHẬP / ĐĂNG KÝ TOÀN MÀN HÌNH
+    if (!isLoggedIn) {
+      if (topBar) topBar.style.display = "none";
+      if (mainHeader) mainHeader.style.display = "none";
+      if (previewBarRoot) previewBarRoot.innerHTML = "";
+      root.innerHTML = renderFullAuthScreen();
+      return;
     }
 
-    // Cập nhật khung tài khoản người dùng trên header (Phân quyền Học sinh vs Admin)
-    const userContainer = document.getElementById("header-user-container");
-    if (userContainer && window.EY8_Supabase) {
-      const user = window.EY8_Supabase.getCurrentUser();
-      const isAdmin = window.EY8_Supabase.isAdmin();
+    if (topBar) topBar.style.display = "block";
+    if (mainHeader) mainHeader.style.display = "block";
 
-      // Đổi tên tab linh hoạt theo vai trò
-      const navTabAnalytics = document.getElementById("nav-tab-analytics");
-      if (navTabAnalytics) {
-        navTabAnalytics.innerHTML = isAdmin ? "👑 Quản Trị & Báo Cáo" : "📈 Tiến Độ Của Em";
+    const currentUser = window.EY8_Supabase.getCurrentUser();
+    const isAdmin = window.EY8_Supabase.isAdmin();
+    const stats = getSummaryStats();
+
+    // 2. NẾU LÀ ADMIN (VÀ KHÔNG Ở CHẾ ĐỘ XEM THỬ HỌC SINH) -> HIỂN THỊ ADMIN PORTAL
+    if (isAdmin && !state.adminPreviewStudentMode) {
+      if (previewBarRoot) previewBarRoot.innerHTML = "";
+      if (mainHeader) mainHeader.classList.add("admin-header-theme");
+
+      const logoEl = document.getElementById("header-brand-logo");
+      const titleEl = document.getElementById("header-brand-title");
+      const subEl = document.getElementById("header-brand-subtitle");
+      if (logoEl) {
+        logoEl.textContent = "👑";
+        logoEl.style.background = "linear-gradient(135deg, #F59E0B, #D97706)";
+      }
+      if (titleEl) titleEl.textContent = "English Young 8 • Admin Portal";
+      if (subEl) subEl.textContent = "Hệ thống Quản trị, Giao bài tập & Giám sát Học sinh";
+
+      if (navTabsEl) {
+        navTabsEl.innerHTML = `
+          <button class="nav-tab ${state.adminTab === "admin-monitor" ? "active" : ""}" onclick="switchAdminTab('admin-monitor')">
+            📊 Giám Sát Học Sinh
+          </button>
+          <button class="nav-tab ${state.adminTab === "admin-assignments" ? "active" : ""}" onclick="switchAdminTab('admin-assignments')">
+            🎯 Giao Bài Tập (${(state.systemStore.assignments || []).length})
+          </button>
+          <button class="nav-tab ${state.adminTab === "admin-content" ? "active" : ""}" onclick="switchAdminTab('admin-content')">
+            🗂️ Quản Lý Đề & Câu Hỏi
+          </button>
+          <button class="nav-tab ${state.adminTab === "admin-users" ? "active" : ""}" onclick="switchAdminTab('admin-users')">
+            👥 Tài Khoản & Hệ Thống
+          </button>
+        `;
       }
 
+      if (userContainer) {
+        userContainer.innerHTML = `
+          <div style="display:flex; align-items:center; gap:10px;">
+            <button class="btn btn-outline btn-sm" style="background:rgba(255,255,255,0.1); color:white; border-color:rgba(255,255,255,0.25);" onclick="toggleAdminStudentPreview(true)" title="Xem giao diện dưới góc nhìn của Học sinh">
+              👁️ Xem thử chế độ Học sinh
+            </button>
+            <div class="user-menu-pill" style="background:#1E293B; border-color:#334155; color:white;">
+              <div class="user-menu-avatar" style="background:#D97706;">👑</div>
+              <div>
+                <div style="font-weight:700; line-height:1.2; font-size:0.84rem; color:white;">${currentUser.fullName}</div>
+                <span class="user-role-tag admin">Quản trị viên</span>
+              </div>
+              <button class="btn-auth-action" style="color:#FCA5A5;" onclick="handleLogout()">
+                [Đăng xuất]
+              </button>
+            </div>
+          </div>
+        `;
+      }
+
+      if (state.adminTab === "admin-monitor") {
+        root.innerHTML = renderAdminMonitorView();
+      } else if (state.adminTab === "admin-assignments") {
+        root.innerHTML = renderAdminAssignmentsView();
+      } else if (state.adminTab === "admin-content") {
+        root.innerHTML = renderAdminContentView();
+      } else if (state.adminTab === "admin-users") {
+        root.innerHTML = renderAdminUsersView();
+      }
+      return;
+    }
+
+    // 3. GIAO DIỆN HỌC SINH (STUDENT PORTAL)
+    if (mainHeader) mainHeader.classList.remove("admin-header-theme");
+    const logoEl = document.getElementById("header-brand-logo");
+    const titleEl = document.getElementById("header-brand-title");
+    const subEl = document.getElementById("header-brand-subtitle");
+    if (logoEl) {
+      logoEl.textContent = "E8";
+      logoEl.style.background = "linear-gradient(135deg, var(--primary), var(--secondary))";
+    }
+    if (titleEl) titleEl.textContent = "English Young 8";
+    if (subEl) subEl.textContent = "Global Success • Học kì 1 (Unit 1 – Unit 6)";
+
+    if (previewBarRoot) {
+      previewBarRoot.innerHTML = isAdmin
+        ? `
+          <div class="admin-preview-banner">
+            <span>👁️ Bạn đang ở <strong>Chế độ Xem thử Giao diện Học sinh</strong>.</span>
+            <button class="btn btn-primary btn-sm" style="padding:4px 12px; font-size:0.78rem;" onclick="toggleAdminStudentPreview(false)">
+              ⬅ Quay lại Bảng Quản Trị Admin
+            </button>
+          </div>
+        `
+        : "";
+    }
+
+    // Đếm nhiệm vụ chưa hoàn thành của học sinh
+    const pendingTasksCount = getStudentAssignedTasks().filter((t) => !t.isCompleted).length;
+
+    if (navTabsEl) {
+      navTabsEl.innerHTML = `
+        <button class="nav-tab ${state.currentTab === "dashboard" ? "active" : ""}" onclick="switchMainTab('dashboard')">
+          🏠 Bàn Học Của Em
+          ${pendingTasksCount > 0 ? `<span class="badge-count" style="background:#F59E0B;">${pendingTasksCount}</span>` : ""}
+        </button>
+        <button class="nav-tab ${state.currentTab === "unit-study" ? "active" : ""}" onclick="switchMainTab('unit-study')">
+          📚 Học Theo Unit (1–6)
+        </button>
+        <button class="nav-tab ${state.currentTab === "exams" ? "active" : ""}" onclick="switchMainTab('exams')">
+          📝 Phòng Luyện Đề Thi
+        </button>
+        <button class="nav-tab ${state.currentTab === "mistakes" ? "active" : ""}" onclick="switchMainTab('mistakes')">
+          📓 Sổ Tay Câu Sai
+          ${stats.mistakeCount > 0 ? `<span class="badge-count">${stats.mistakeCount}</span>` : ""}
+        </button>
+        <button class="nav-tab ${state.currentTab === "student-progress" ? "active" : ""}" onclick="switchMainTab('student-progress')">
+          🏆 Thành Tích Của Em
+        </button>
+      `;
+    }
+
+    if (userContainer) {
       userContainer.innerHTML = `
         <div class="user-menu-pill">
-          <div class="user-menu-avatar">${isAdmin ? "👑" : "🎓"}</div>
+          <div class="user-menu-avatar">🎓</div>
           <div>
-            <div style="font-weight:700; line-height:1.2; font-size:0.86rem;">${user ? user.fullName : "Khách"}</div>
-            <span class="user-role-tag ${isAdmin ? "admin" : "student"}">${isAdmin ? "Quản trị viên" : "Học sinh"}</span>
+            <div style="font-weight:700; line-height:1.2; font-size:0.86rem;">${currentUser.fullName}</div>
+            <span class="user-role-tag student">Học sinh Lớp 8</span>
           </div>
-          <button class="btn-auth-action" onclick="openAuthModal()" title="Bấm để đăng nhập hoặc đổi tài khoản">
-            [Đổi tài khoản]
+          <button class="btn-auth-action" onclick="handleLogout()" title="Đăng xuất khỏi tài khoản">
+            [Đăng xuất]
           </button>
         </div>
       `;
     }
-
-    const root = document.getElementById("app-root");
-    if (!root) return;
 
     if (state.currentTab === "dashboard") {
       root.innerHTML = renderDashboard(stats);
@@ -214,16 +473,386 @@
       root.innerHTML = renderExamsView();
     } else if (state.currentTab === "mistakes") {
       root.innerHTML = renderMistakesView();
-    } else if (state.currentTab === "analytics") {
-      root.innerHTML = renderAnalyticsView(stats);
+    } else if (state.currentTab === "student-progress") {
+      root.innerHTML = renderStudentProgressView(stats);
     }
   }
 
-  // ==========================================
-  // 1. GIAO DIỆN TỔNG QUAN (DASHBOARD)
-  // ==========================================
+  // =========================================================================
+  // TRANG ĐĂNG NHẬP & ĐĂNG KÝ TOÀN MÀN HÌNH (FULL-SCREEN AUTH PORTAL)
+  // =========================================================================
+  function renderFullAuthScreen() {
+    const isLogin = state.authScreenTab === "login";
+
+    return `
+      <div class="auth-page-wrapper">
+        <div class="auth-split-card">
+          <!-- Cột Trái: Giới thiệu Hệ thống -->
+          <div class="auth-brand-panel">
+            <div>
+              <div class="auth-brand-badge">
+                <span>🇬🇧</span>
+                <span>Tiếng Anh 8 • Global Success (GDPT Mới)</span>
+              </div>
+              <h2>Hệ Thống Ôn Tập & Luyện Thi Lớp 8</h2>
+              <p>Nền tảng học từ vựng, nắm chắc ngữ pháp và luyện đề kiểm tra Học kì 1 với lộ trình cá nhân hóa và giám sát tiến độ trực tuyến.</p>
+
+              <div class="auth-feature-list">
+                <div class="auth-feature-item">
+                  <span class="auth-feature-icon">🎓</span>
+                  <div>
+                    <strong>Không gian Học sinh riêng biệt</strong>
+                    <span>Học Flashcard có phát âm chuẩn, làm đề thi bấm giờ, tự động lưu Sổ tay câu hay sai và nhận bài tập được giao.</span>
+                  </div>
+                </div>
+
+                <div class="auth-feature-item">
+                  <span class="auth-feature-icon">👑</span>
+                  <div>
+                    <strong>Cổng Quản trị & Giám sát (Dành cho Anh/Chị & Phụ huynh)</strong>
+                    <span>Theo dõi điểm số từ xa, soi chi tiết từng câu trả lời, giao bài tập bắt buộc và quản lý ngân hàng đề thi.</span>
+                  </div>
+                </div>
+
+                <div class="auth-feature-item">
+                  <span class="auth-feature-icon">☁️</span>
+                  <div>
+                    <strong>Đồng bộ đám mây thời gian thực</strong>
+                    <span>Học trên bất kỳ máy tính hay điện thoại nào, dữ liệu được lưu trữ an toàn trên cơ sở dữ liệu đám mây.</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div style="margin-top: 28px; padding-top: 16px; border-top: 1px solid rgba(255,255,255,0.15); font-size: 0.8rem; color: #C7D2FE; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+              <span>© 2026 English Young 8 Learning Platform</span>
+              <span>🟢 Máy chủ Cloud: Sẵn sàng</span>
+            </div>
+          </div>
+
+          <!-- Cột Phải: Form Đăng Nhập / Đăng Ký -->
+          <div class="auth-form-panel">
+            <div style="margin-bottom: 18px;">
+              <h3 style="font-size: 1.5rem; font-weight: 900; color: var(--text-main); margin-bottom: 4px;">
+                ${isLogin ? "Chào mừng quay trở lại! 👋" : "Tạo tài khoản Học sinh mới ✨"}
+              </h3>
+              <p style="font-size: 0.88rem; color: var(--text-muted);">
+                ${
+                  isLogin
+                    ? "Đăng nhập bằng tài khoản Học sinh để vào bàn học, hoặc tài khoản Admin để vào trang quản lý."
+                    : "Điền thông tin bên dưới để tạo tài khoản học tập riêng cho em."
+                }
+              </p>
+            </div>
+
+            <div class="auth-mode-switch">
+              <button class="auth-mode-btn ${isLogin ? "active" : ""}" onclick="switchAuthScreenMode('login')">
+                🔑 Đăng Nhập
+              </button>
+              <button class="auth-mode-btn ${!isLogin ? "active" : ""}" onclick="switchAuthScreenMode('register')">
+                📝 Đăng Ký Học Sinh
+              </button>
+            </div>
+
+            ${
+              isLogin
+                ? `
+                <!-- FORM ĐĂNG NHẬP -->
+                <form onsubmit="event.preventDefault(); submitAuthLogin();">
+                  <div class="form-field">
+                    <label for="auth-login-user">Tên đăng nhập (Username)</label>
+                    <div class="input-with-icon">
+                      <input id="auth-login-user" type="text" autocomplete="username" placeholder="Ví dụ: em_lop8 hoặc tên đăng nhập của bạn" required />
+                    </div>
+                  </div>
+
+                  <div class="form-field">
+                    <label for="auth-login-pass">Mật khẩu / Mã PIN</label>
+                    <div class="input-with-icon">
+                      <input id="auth-login-pass" type="${state.showPassword ? "text" : "password"}" autocomplete="current-password" placeholder="Nhập mật khẩu..." required />
+                      <button type="button" class="pwd-toggle-btn" onclick="toggleAuthPasswordVisibility()" title="Hiện/Ẩn mật khẩu">
+                        ${state.showPassword ? "🙈" : "👁️"}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div id="auth-screen-error" style="display:none; margin-bottom:14px; padding:10px 14px; border-radius:10px; background:#FEF2F2; border:1px solid #FECACA; color:#991B1B; font-size:0.85rem; font-weight:600;"></div>
+
+                  <button type="submit" id="auth-submit-btn" class="btn btn-primary" style="width:100%; padding:13px; font-size:0.96rem; border-radius:10px;">
+                    Đăng Nhập Vào Hệ Thống ➔
+                  </button>
+                </form>
+
+                <div style="margin-top: 22px; padding: 14px; background: #F8FAFC; border: 1px dashed #CBD5E1; border-radius: 12px; font-size: 0.82rem; color: var(--text-muted);">
+                  <div style="font-weight: 700; color: var(--text-main); margin-bottom: 6px;">💡 Hướng dẫn dành cho Học sinh:</div>
+                  <div>• Tài khoản học sinh mặc định: Tên đăng nhập <code>em_lop8</code> — Mã PIN: <code>1234</code></div>
+                  <div style="margin-top:4px;">• Hoặc em có thể bấm sang tab <strong>"Đăng Ký Học Sinh"</strong> để tự tạo tài khoản mang tên mình.</div>
+                </div>
+              `
+                : `
+                <!-- FORM ĐĂNG KÝ TÀI KHOẢN HỌC SINH (KHÔNG CHO PHÉP TỰ CHỌN ADMIN) -->
+                <form onsubmit="event.preventDefault(); submitAuthRegister();">
+                  <div class="form-field">
+                    <label for="auth-reg-fullname">Họ và Tên học sinh</label>
+                    <input id="auth-reg-fullname" class="form-control-input" type="text" placeholder="Ví dụ: Nguyễn Minh Trang" required />
+                  </div>
+
+                  <div class="form-field">
+                    <label for="auth-reg-user">Tên đăng nhập (viết liền, không dấu)</label>
+                    <input id="auth-reg-user" class="form-control-input" type="text" placeholder="Ví dụ: minhtrang8" required />
+                  </div>
+
+                  <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px;">
+                    <div class="form-field">
+                      <label for="auth-reg-pass">Mật khẩu (tối thiểu 4 ký tự)</label>
+                      <input id="auth-reg-pass" class="form-control-input" type="password" placeholder="Nhập mật khẩu..." required />
+                    </div>
+                    <div class="form-field">
+                      <label for="auth-reg-pass-confirm">Nhập lại mật khẩu</label>
+                      <input id="auth-reg-pass-confirm" class="form-control-input" type="password" placeholder="Xác nhận mật khẩu..." required />
+                    </div>
+                  </div>
+
+                  <div style="margin-bottom: 16px; padding: 10px 12px; background: #EEF2FF; border-radius: 8px; font-size: 0.8rem; color: #3730A3;">
+                    🎓 Tài khoản đăng ký tại đây được phân quyền mặc định là <strong>Học sinh Lớp 8</strong>.
+                  </div>
+
+                  <div id="auth-screen-error" style="display:none; margin-bottom:14px; padding:10px 14px; border-radius:10px; background:#FEF2F2; border:1px solid #FECACA; color:#991B1B; font-size:0.85rem; font-weight:600;"></div>
+
+                  <button type="submit" id="auth-reg-submit-btn" class="btn btn-primary" style="width:100%; padding:13px; font-size:0.96rem; border-radius:10px;">
+                    ✨ Hoàn Tất Đăng Ký & Vào Học Ngay
+                  </button>
+                </form>
+              `
+            }
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  window.switchAuthScreenMode = function (mode) {
+    state.authScreenTab = mode;
+    renderApp();
+  };
+
+  window.toggleAuthPasswordVisibility = function () {
+    const uVal = document.getElementById("auth-login-user")?.value || "";
+    const pVal = document.getElementById("auth-login-pass")?.value || "";
+    state.showPassword = !state.showPassword;
+    renderApp();
+    const uEl = document.getElementById("auth-login-user");
+    const pEl = document.getElementById("auth-login-pass");
+    if (uEl) uEl.value = uVal;
+    if (pEl) pEl.value = pVal;
+  };
+
+  window.submitAuthLogin = async function () {
+    const uEl = document.getElementById("auth-login-user");
+    const pEl = document.getElementById("auth-login-pass");
+    const errEl = document.getElementById("auth-screen-error");
+    const btnEl = document.getElementById("auth-submit-btn");
+
+    if (!uEl || !pEl) return;
+    if (btnEl) {
+      btnEl.disabled = true;
+      btnEl.textContent = "⏳ Đang kiểm tra đăng nhập...";
+    }
+
+    const res = await window.EY8_Supabase.login(uEl.value, pEl.value);
+    if (res.success) {
+      state.adminPreviewStudentMode = false;
+      loadActiveUserLocalProgress();
+      await loadSystemStoreAndApply();
+      if (window.EY8_Supabase.isAdmin()) {
+        state.adminTab = "admin-monitor";
+        await refreshAdminUsersList();
+        await loadAdminInspectedStudent(state.adminSelectedStudent);
+      } else {
+        state.currentTab = "dashboard";
+        await syncCloudData(true);
+      }
+      renderApp();
+    } else {
+      if (btnEl) {
+        btnEl.disabled = false;
+        btnEl.textContent = "Đăng Nhập Vào Hệ Thống ➔";
+      }
+      if (errEl) {
+        errEl.style.display = "block";
+        errEl.textContent = "⚠️ " + (res.message || "Sai tên đăng nhập hoặc mật khẩu!");
+      }
+    }
+  };
+
+  window.submitAuthRegister = async function () {
+    const nameEl = document.getElementById("auth-reg-fullname");
+    const userEl = document.getElementById("auth-reg-user");
+    const passEl = document.getElementById("auth-reg-pass");
+    const confirmEl = document.getElementById("auth-reg-pass-confirm");
+    const errEl = document.getElementById("auth-screen-error");
+    const btnEl = document.getElementById("auth-reg-submit-btn");
+
+    if (!nameEl || !userEl || !passEl || !confirmEl) return;
+
+    if (passEl.value !== confirmEl.value) {
+      if (errEl) {
+        errEl.style.display = "block";
+        errEl.textContent = "⚠️ Mật khẩu xác nhận không khớp. Vui lòng nhập lại!";
+      }
+      return;
+    }
+
+    if (btnEl) {
+      btnEl.disabled = true;
+      btnEl.textContent = "⏳ Đang khởi tạo tài khoản...";
+    }
+
+    const res = await window.EY8_Supabase.register({
+      fullName: nameEl.value,
+      username: userEl.value,
+      password: passEl.value,
+      role: "student",
+      createdByAdmin: false
+    });
+
+    if (res.success) {
+      state.currentTab = "dashboard";
+      loadActiveUserLocalProgress();
+      await loadSystemStoreAndApply();
+      renderApp();
+    } else {
+      if (btnEl) {
+        btnEl.disabled = false;
+        btnEl.textContent = "✨ Hoàn Tất Đăng Ký & Vào Học Ngay";
+      }
+      if (errEl) {
+        errEl.style.display = "block";
+        errEl.textContent = "⚠️ " + (res.message || "Không thể đăng ký tài khoản!");
+      }
+    }
+  };
+
+  window.handleLogout = function () {
+    stopExamTimer();
+    state.activeExam = null;
+    state.adminPreviewStudentMode = false;
+    if (window.EY8_Supabase) {
+      window.EY8_Supabase.logout();
+    }
+    closeModal();
+    renderApp();
+  };
+
+  // =========================================================================
+  // KIỂM TRA NHIỆM VỤ ĐƯỢC ADMIN GIAO CHO HỌC SINH
+  // =========================================================================
+  function evaluateAssignmentStatus(task, studentRecord) {
+    const eHistory = (studentRecord && studentRecord.examHistory) || [];
+    const uScores = (studentRecord && studentRecord.unitScores) || {};
+    const learnedMap = (studentRecord && studentRecord.learnedVocab) || {};
+
+    if (task.targetType === "exam") {
+      const attempts = eHistory.filter((h) => h.examId === task.targetId);
+      const best = attempts.length > 0 ? Math.max(...attempts.map((a) => Number(a.score10 || 0))) : null;
+      const isCompleted = best !== null && best >= Number(task.minScore || 5);
+      return {
+        isCompleted,
+        bestScoreText: best !== null ? `${best} / 10 điểm` : "Chưa làm",
+        attemptsCount: attempts.length
+      };
+    } else {
+      // Unit task
+      const unit = (window.STUDY_DATA.units || []).find((u) => u.id === task.targetId);
+      const totalQ = unit && unit.practice ? unit.practice.length : 12;
+      const rawBest = uScores[task.targetId];
+      const score10 = rawBest !== undefined ? Number(((rawBest / totalQ) * 10).toFixed(1)) : null;
+      const learnedInUnit = unit ? unit.vocabulary.filter((v) => learnedMap[v.id]).length : 0;
+      const totalV = unit ? unit.vocabulary.length : 15;
+      const isCompleted = score10 !== null && score10 >= Number(task.minScore || 7);
+      return {
+        isCompleted,
+        bestScoreText:
+          score10 !== null
+            ? `Bài tập: ${score10}/10đ (${learnedInUnit}/${totalV} từ)`
+            : `Chưa làm bài tập (${learnedInUnit}/${totalV} từ)`,
+        attemptsCount: rawBest !== undefined ? 1 : 0
+      };
+    }
+  }
+
+  function getStudentAssignedTasks() {
+    const uName = getActiveUsername();
+    const list = state.systemStore.assignments || [];
+    return list
+      .filter((t) => !t.studentUsername || t.studentUsername === "all" || t.studentUsername.toLowerCase() === uName)
+      .map((t) => {
+        const evalRes = evaluateAssignmentStatus(t, state);
+        return { ...t, ...evalRes };
+      });
+  }
+
+  window.startAssignedTask = function (targetType, targetId) {
+    if (targetType === "exam") {
+      startExamById(targetId);
+    } else {
+      openUnitWithSubTab(targetId, "vocab");
+    }
+  };
+
+  // =========================================================================
+  // 1. STUDENT PORTAL: BÀN HỌC CỦA EM (DASHBOARD)
+  // =========================================================================
   function renderDashboard(stats) {
     const units = window.STUDY_DATA.units || [];
+    const assignedTasks = getStudentAssignedTasks();
+
+    const assignedTasksHtml =
+      assignedTasks.length > 0
+        ? `
+        <div class="assigned-tasks-panel">
+          <div class="assigned-tasks-header">
+            <div>
+              <h3 style="font-size:1.15rem; font-weight:800; color:#92400E;">
+                📌 Nhiệm Vụ Học Tập Anh/Chị Giao Cho Em (${assignedTasks.filter((x) => x.isCompleted).length}/${assignedTasks.length} hoàn thành)
+              </h3>
+              <p style="font-size:0.85rem; color:#B45309;">Hãy hoàn thành các bài tập dưới đây đúng hạn và đạt điểm mục tiêu nhé!</p>
+            </div>
+          </div>
+          <div class="assigned-task-grid">
+            ${assignedTasks
+              .map(
+                (t) => `
+                <div class="assigned-task-card ${t.isCompleted ? "completed" : ""}">
+                  <div>
+                    <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:6px;">
+                      <span style="font-size:0.75rem; font-weight:800; padding:3px 9px; border-radius:99px; background:${t.isCompleted ? "#10B981" : "#F59E0B"}; color:white;">
+                        ${t.isCompleted ? "✅ ĐÃ HOÀN THÀNH" : "⏳ CẦN LÀM"}
+                      </span>
+                      <span style="font-size:0.78rem; color:var(--text-muted); font-weight:600;">📅 Hạn: ${t.dueDate || "Trong tuần"}</span>
+                    </div>
+                    <h4 style="font-size:1rem; font-weight:800; color:var(--text-main); margin-bottom:4px;">${t.title}</h4>
+                    <div style="font-size:0.82rem; color:#475569; margin-bottom:6px;">
+                      🎯 Yêu cầu đạt: <strong>≥ ${t.minScore} điểm</strong> • Hiện tại: <strong>${t.bestScoreText}</strong>
+                    </div>
+                    ${
+                      t.note
+                        ? `<div style="font-size:0.8rem; background:rgba(0,0,0,0.03); padding:6px 10px; border-radius:6px; color:#334155; font-style:italic;">💬 Lời nhắn: "${t.note}"</div>`
+                        : ""
+                    }
+                  </div>
+                  <button class="btn ${t.isCompleted ? "btn-outline" : "btn-primary"} btn-sm" style="width:100%" onclick="startAssignedTask('${t.targetType}', '${t.targetId}')">
+                    ${t.isCompleted ? "🔄 Ôn lại bài này" : "✍️ Bắt đầu làm ngay ➔"}
+                  </button>
+                </div>
+              `
+              )
+              .join("")}
+          </div>
+        </div>
+      `
+        : "";
+
     const unitCardsHtml = units
       .map((u) => {
         const totalV = u.vocabulary.length;
@@ -264,6 +893,8 @@
       .join("");
 
     return `
+      ${assignedTasksHtml}
+
       <div class="hero-banner">
         <div class="hero-content">
           <span class="hero-tag">✨ Chương trình GDPT Mới • Tiếng Anh 8 Global Success</span>
@@ -276,8 +907,8 @@
         </div>
         <div style="background: rgba(255,255,255,0.14); padding: 18px 22px; border-radius: 16px; min-width: 240px; backdrop-filter: blur(6px);">
           <div style="font-size:0.82rem; color:#E0E7FF; margin-bottom:6px;">🎯 Mục tiêu Học kì 1</div>
-          <div style="font-size:1.15rem; font-weight:800; margin-bottom:8px;">6 Units • 86 Từ trọng tâm</div>
-          <div style="font-size:0.85rem; color:#E0E7FF;">• 72 câu bài tập theo từng Unit<br>• 6 Đề thi (15p, Giữa kì, Cuối kì)<br>• Tự động lưu lại câu làm sai</div>
+          <div style="font-size:1.15rem; font-weight:800; margin-bottom:8px;">6 Units • ${stats.totalVocab} Từ trọng tâm</div>
+          <div style="font-size:0.85rem; color:#E0E7FF;">• Bài tập củng cố từng Unit<br>• ${(window.STUDY_DATA.exams || []).length} Đề thi (15p, Giữa kì, Cuối kì)<br>• Tự động lưu lại câu làm sai</div>
         </div>
       </div>
 
@@ -319,34 +950,12 @@
       <div class="units-grid">
         ${unitCardsHtml}
       </div>
-
-      <div class="section-header">
-        <h2>🔥 Đề thi trọng tâm chuẩn bị cho Kì thi Cuối kì 1</h2>
-        <button class="btn btn-outline btn-sm" onclick="switchMainTab('exams')">Xem tất cả 6 đề thi →</button>
-      </div>
-      <div class="units-grid">
-        ${(window.STUDY_DATA.exams || [])
-          .slice(3, 6)
-          .map(
-            (ex) => `
-          <div class="unit-card" onclick="startExamById('${ex.id}')">
-            <div>
-              <span class="fc-type" style="background:#FEE2E2; color:#DC2626;">⏱ ${ex.durationMinutes} Phút • ${ex.questions.length} Câu</span>
-              <h3 class="unit-title" style="margin-bottom:6px;">${ex.title}</h3>
-              <p class="unit-summary">${ex.description}</p>
-            </div>
-            <button class="btn btn-primary" style="width:100%">✍️ Bắt đầu làm đề</button>
-          </div>
-        `
-          )
-          .join("")}
-      </div>
     `;
   }
 
-  // ==========================================
-  // 2. GIAO DIỆN HỌC THEO UNIT (TỪ VỰNG, NGỮ PHÁP, BÀI TẬP)
-  // ==========================================
+  // =========================================================================
+  // 2. STUDENT PORTAL: HỌC THEO UNIT (TỪ VỰNG, NGỮ PHÁP, BÀI TẬP)
+  // =========================================================================
   function renderUnitStudy() {
     const units = window.STUDY_DATA.units || [];
     const unit = units.find((u) => u.id === state.selectedUnitId) || units[0];
@@ -366,7 +975,7 @@
       subContentHtml = renderUnitVocabSubTab(unit);
     } else if (state.unitSubTab === "grammar") {
       subContentHtml = renderUnitGrammarSubTab(unit);
-    } else {
+    } else if (state.unitSubTab === "practice") {
       subContentHtml = renderUnitPracticeSubTab(unit);
     }
 
@@ -375,12 +984,12 @@
         ${unitSelectorHtml}
       </div>
 
-      <div style="background:white; border:1px solid var(--border); border-radius:var(--radius-lg); padding:20px 24px; margin-bottom:20px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:14px;">
+      <div style="background:white; padding:22px 24px; border-radius:var(--radius-lg); border:1px solid var(--border); margin-bottom:20px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px;">
         <div style="display:flex; align-items:center; gap:14px;">
-          <div class="unit-icon" style="background:${unit.color}; width:54px; height:54px; font-size:1.7rem;">${unit.icon}</div>
+          <div class="unit-icon" style="background:${unit.color}; width:52px; height:52px; font-size:1.6rem;">${unit.icon}</div>
           <div>
-            <div class="unit-badge" style="color:${unit.color}">UNIT ${unit.number} • TIẾNG ANH 8 GLOBAL SUCCESS</div>
-            <h2 style="font-size:1.4rem; font-weight:800;">${unit.title} — ${unit.viTitle}</h2>
+            <div style="font-size:0.8rem; font-weight:700; color:${unit.color}; text-transform:uppercase;">UNIT ${unit.number} • TIẾNG ANH 8 GLOBAL SUCCESS</div>
+            <h2 style="font-size:1.4rem; font-weight:800;">${unit.title} (${unit.viTitle})</h2>
             <p style="font-size:0.88rem; color:var(--text-muted);">${unit.summary}</p>
           </div>
         </div>
@@ -388,13 +997,13 @@
 
       <div class="sub-tabs">
         <button class="sub-tab ${state.unitSubTab === "vocab" ? "active" : ""}" onclick="switchUnitSubTab('vocab')">
-          📇 1. Flashcard & Từ vựng (${unit.vocabulary.length} từ)
+          🗂️ 1. Từ vựng & Flashcard (${unit.vocabulary.length} từ)
         </button>
         <button class="sub-tab ${state.unitSubTab === "grammar" ? "active" : ""}" onclick="switchUnitSubTab('grammar')">
           📐 2. Ngữ âm & Ngữ pháp trọng tâm
         </button>
         <button class="sub-tab ${state.unitSubTab === "practice" ? "active" : ""}" onclick="switchUnitSubTab('practice')">
-          ✍️ 3. Bài tập thực hành Unit (${unit.practice.length} câu)
+          ✍️ 3. Bài tập thực hành Unit ${unit.number} (${unit.practice.length} câu)
         </button>
       </div>
 
@@ -416,7 +1025,6 @@
     renderApp();
   };
 
-  // --- Sub-tab 2.1: Flashcard & Từ vựng ---
   function renderUnitVocabSubTab(unit) {
     const vocabList = unit.vocabulary;
     const currentCard = vocabList[state.fcIndex] || vocabList[0];
@@ -432,54 +1040,54 @@
     return `
       <div class="flashcard-wrapper">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; font-size:0.9rem;">
-          <span>Thẻ từ vựng: <strong>${state.fcIndex + 1} / ${vocabList.length}</strong></span>
-          <span style="color:var(--success); font-weight:700;">✅ Đã thuộc: ${learnedInUnit}/${vocabList.length} từ</span>
+          <span><strong>Thẻ ghi nhớ thông minh (Flashcard):</strong> Từ ${state.fcIndex + 1} / ${vocabList.length}</span>
+          <span style="color:var(--success); font-weight:700;">Đã thuộc: ${learnedInUnit}/${vocabList.length} từ</span>
         </div>
 
-        <div class="flashcard-box" onclick="flipFlashcard()">
-          <div style="width:100%; display:flex; justify-content:space-between; align-items:center;">
-            <span class="fc-type">${currentCard.type}</span>
-            <button class="speaker-btn" title="Nghe phát âm" onclick="speakEnglish('${currentCard.word.replace(/'/g, "\\'")}', event)">🔊</button>
-          </div>
-
-          <div style="my:auto; padding: 10px 0;">
-            <div class="fc-word">${currentCard.word}</div>
-            <div class="fc-ipa">${currentCard.ipa}</div>
-            ${
-              state.fcFlipped
-                ? `
-                  <div class="fc-meaning">${currentCard.meaning}</div>
-                  <div class="fc-example">"${currentCard.example}"</div>
-                  <div class="fc-example-vi">→ ${currentCard.exampleVi}</div>
-                `
-                : `<div style="color:var(--primary); font-weight:600; margin-top:16px; background:var(--primary-light); padding:8px 16px; border-radius:99px; display:inline-block;">👆 Bấm vào thẻ để lật xem nghĩa & ví dụ</div>`
-            }
-          </div>
-
-          <div class="fc-tip">💡 Mẹo nhớ / Lưu ý thi: ${currentCard.tip}</div>
+        <div class="flashcard" onclick="flipFlashcard()">
+          ${
+            !state.fcFlipped
+              ? `
+              <span class="fc-type">${currentCard.type}</span>
+              <div class="fc-word">${currentCard.word}</div>
+              <div class="fc-ipa">${currentCard.ipa}</div>
+              <button class="speaker-btn" onclick="speakEnglish('${currentCard.word.replace(/'/g, "\\'")}', event)" title="Nghe phát âm chuẩn">
+                🔊
+              </button>
+              <span class="fc-hint">👆 Bấm vào thẻ để lật xem nghĩa tiếng Việt & câu ví dụ</span>
+            `
+              : `
+              <span class="fc-type">${currentCard.word} ${currentCard.ipa}</span>
+              <div class="fc-meaning">${currentCard.meaning}</div>
+              <div class="fc-example">"${currentCard.example}"</div>
+              <div class="fc-example-vi">→ ${currentCard.exampleVi}</div>
+              <div class="fc-tip">💡 <strong>Mẹo nhớ / Lưu ý thi:</strong> ${currentCard.tip}</div>
+              <span class="fc-hint">👆 Bấm vào thẻ để lật lại mặt trước</span>
+            `
+          }
         </div>
 
         <div class="fc-controls">
           <button class="btn btn-outline" onclick="prevFlashcard()">⬅ Từ trước</button>
-          <button class="btn ${isLearned ? "btn-success" : "btn-outline"}" onclick="toggleLearnedVocab('${currentCard.id}')">
-            ${isLearned ? "✅ Đã thuộc từ này (Bấm để bỏ)" : "☑️ Đánh dấu Đã thuộc"}
+          <button class="btn ${isLearned ? "btn-success" : "btn-primary"}" onclick="toggleLearnedVocab('${currentCard.id}')">
+            ${isLearned ? "✅ Đã thuộc từ này (Bấm để bỏ)" : "📌 Đánh dấu: Đã thuộc từ này"}
           </button>
-          <button class="btn btn-primary" onclick="nextFlashcard()">Từ tiếp theo ➡</button>
+          <button class="btn btn-outline" onclick="nextFlashcard()">Từ tiếp theo ➡</button>
         </div>
       </div>
 
-      <div class="section-header" style="margin-top:36px;">
-        <h2>📋 Bảng tổng hợp từ vựng Unit ${unit.number}</h2>
+      <div class="section-header" style="margin-top:32px;">
+        <h2>📋 Bảng tổng hợp ${vocabList.length} từ vựng Unit ${unit.number}</h2>
         <input
           type="text"
           placeholder="🔍 Tìm nhanh từ vựng hoặc nghĩa..."
           value="${state.vocabFilter}"
           oninput="filterVocabList(this.value)"
-          style="padding:8px 14px; border:1px solid var(--border); border-radius:var(--radius-sm); width:260px; font-size:0.9rem;"
+          style="padding:8px 14px; border-radius:8px; border:1px solid var(--border); min-width:250px; font-size:0.9rem;"
         />
       </div>
 
-      <div class="vocab-grid">
+      <div class="vocab-list-grid">
         ${filteredVocab
           .map((v) => {
             const learned = !!state.learnedVocab[v.id];
@@ -494,9 +1102,9 @@
                     </div>
                     <button class="speaker-btn" onclick="speakEnglish('${v.word.replace(/'/g, "\\'")}', event)" title="Nghe phát âm">🔊</button>
                   </div>
-                  <div style="font-weight:700; font-size:1rem; margin:6px 0; color:#0F172A;">${v.meaning}</div>
-                  <div style="font-size:0.86rem; color:#334155; font-style:italic;">• ${v.example}</div>
-                  <div style="font-size:0.82rem; color:var(--text-muted); margin-bottom:8px;">(${v.exampleVi})</div>
+                  <div class="vocab-meaning-text">${v.meaning}</div>
+                  <div style="font-size:0.84rem; color:#334155; font-style:italic; margin-bottom:4px;">"${v.example}"</div>
+                  <div style="font-size:0.8rem; color:var(--text-muted); margin-bottom:8px;">(${v.exampleVi})</div>
                 </div>
                 <div>
                   <div style="font-size:0.8rem; background:#FEF3C7; color:#92400E; padding:6px 10px; border-radius:6px; margin-bottom:8px;">
@@ -544,17 +1152,16 @@
       state.learnedVocab[vocabId] = true;
       isNowLearned = true;
     }
-    saveJSON(STORAGE_KEYS.LEARNED_VOCAB, state.learnedVocab);
+    persistActiveStudentState();
 
-    // Đồng bộ lên Supabase nếu có kết nối
     if (window.EY8_Supabase && window.EY8_Supabase.syncVocabProgress) {
       window.EY8_Supabase.syncVocabProgress(
         vocabId,
         state.selectedUnitId,
-        isNowLearned ? "mastered" : "learning"
+        isNowLearned ? "mastered" : "learning",
+        state
       );
     }
-
     renderApp();
   };
 
@@ -568,7 +1175,6 @@
     }
   };
 
-  // --- Sub-tab 2.2: Ngữ âm & Ngữ pháp ---
   function renderUnitGrammarSubTab(unit) {
     const pronHtml = unit.pronunciation
       ? `
@@ -626,13 +1232,12 @@
       ${grammarHtml}
       <div style="text-align:center; margin-top:24px;">
         <button class="btn btn-primary" onclick="switchUnitSubTab('practice')">
-          ✍️ Áp dụng làm ngay 12 câu bài tập Unit ${unit.number} →
+          ✍️ Áp dụng làm ngay ${unit.practice.length} câu bài tập Unit ${unit.number} →
         </button>
       </div>
     `;
   }
 
-  // --- Sub-tab 2.3: Bài tập thực hành Unit ---
   function renderUnitPracticeSubTab(unit) {
     const questions = unit.practice || [];
     let correctCount = 0;
@@ -725,7 +1330,6 @@
       if (isRight) {
         correct++;
       } else {
-        // Lưu vào sổ tay câu sai
         state.mistakes[q.id] = {
           id: q.id,
           source: `Unit ${unit.number}: ${unit.title}`,
@@ -745,7 +1349,6 @@
     }
 
     const score10 = Number(((correct / unit.practice.length) * 10).toFixed(2));
-    // Lưu vào lịch sử chung để hiển thị bảng báo cáo
     state.examHistory.unshift({
       examId: `quiz-${unit.id}`,
       examTitle: `Bài tập củng cố Unit ${unit.number}: ${unit.title}`,
@@ -761,24 +1364,22 @@
       questions: unit.practice
     });
 
-    saveJSON(STORAGE_KEYS.UNIT_SCORES, state.unitScores);
-    saveJSON(STORAGE_KEYS.EXAM_HISTORY, state.examHistory);
-    saveJSON(STORAGE_KEYS.MISTAKES, state.mistakes);
+    persistActiveStudentState();
 
-    // Đồng bộ lên Supabase nếu có kết nối
     if (window.EY8_Supabase && window.EY8_Supabase.recordQuizAttempt) {
-      window.EY8_Supabase.recordQuizAttempt({
-        exerciseId: `quiz-${unit.id}`,
-        score: score10,
-        rawScore: correct,
-        totalQuestions: unit.practice.length,
-        timeSpentSeconds: 300,
-        answers: answersList
-      });
+      window.EY8_Supabase.recordQuizAttempt(
+        {
+          exerciseId: `quiz-${unit.id}`,
+          score: score10,
+          rawScore: correct,
+          totalQuestions: unit.practice.length,
+          timeSpentSeconds: 300,
+          answers: answersList
+        },
+        state
+      );
     }
 
-    saveJSON(STORAGE_KEYS.UNIT_SCORES, state.unitScores);
-    saveJSON(STORAGE_KEYS.MISTAKES, state.mistakes);
     state.unitQuizSubmitted = true;
     renderApp();
     window.scrollTo({ top: 180, behavior: "smooth" });
@@ -790,7 +1391,6 @@
     renderApp();
   };
 
-  // Hàm dùng chung để vẽ 1 thẻ câu hỏi trắc nghiệm
   function renderQuestionCardHtml(q, displayNum, userAns, isSubmitted, clickHandlerName) {
     const optionsHtml = q.options
       .map((opt, oIdx) => {
@@ -844,9 +1444,9 @@
     `;
   }
 
-  // ==========================================
-  // 3. GIAO DIỆN PHÒNG LUYỆN ĐỀ THI (EXAMS)
-  // ==========================================
+  // =========================================================================
+  // 3. STUDENT PORTAL: PHÒNG LUYỆN ĐỀ THI (EXAMS)
+  // =========================================================================
   function renderExamsView() {
     if (state.activeExam) {
       return renderActiveExamRoom();
@@ -854,15 +1454,13 @@
 
     const exams = window.STUDY_DATA.exams || [];
     const filtered =
-      state.examFilter === "all"
-        ? exams
-        : exams.filter((e) => e.category === state.examFilter);
+      state.examFilter === "all" ? exams : exams.filter((e) => e.category === state.examFilter);
 
     return `
       <div class="section-header">
         <div>
           <h2>📝 Phòng Luyện Đề Kiểm Tra & Thi Học Kì 1</h2>
-          <p style="font-size:0.9rem; color:var(--text-muted);">Đề thi thiết kế bám sát ma trận đề kiểm tra Tiếng Anh 8 Global Success của Bộ GD&ĐT</p>
+          <p style="font-size:0.9rem; color:var(--text-muted);">Đề thi thiết kế bám sát ma trận đề kiểm tra Tiếng Anh 8 Global Success</p>
         </div>
         <div style="display:flex; gap:8px; flex-wrap:wrap;">
           <button class="unit-pill ${state.examFilter === "all" ? "active" : ""}" onclick="setExamFilter('all')">Tất cả (${exams.length})</button>
@@ -877,9 +1475,7 @@
           .map((ex) => {
             const attempts = state.examHistory.filter((h) => h.examId === ex.id);
             const bestScore =
-              attempts.length > 0
-                ? Math.max(...attempts.map((a) => a.score10)).toFixed(1)
-                : null;
+              attempts.length > 0 ? Math.max(...attempts.map((a) => a.score10)).toFixed(1) : null;
 
             return `
               <div class="unit-card">
@@ -1123,19 +1719,20 @@
       questions: ex.questions
     });
 
-    saveJSON(STORAGE_KEYS.EXAM_HISTORY, state.examHistory);
-    saveJSON(STORAGE_KEYS.MISTAKES, state.mistakes);
+    persistActiveStudentState();
 
-    // Đồng bộ lên Supabase nếu có kết nối
     if (window.EY8_Supabase && window.EY8_Supabase.recordQuizAttempt) {
-      window.EY8_Supabase.recordQuizAttempt({
-        exerciseId: ex.id,
-        score: score10,
-        rawScore: correct,
-        totalQuestions: ex.questions.length,
-        timeSpentSeconds,
-        answers: answersList
-      });
+      window.EY8_Supabase.recordQuizAttempt(
+        {
+          exerciseId: ex.id,
+          score: score10,
+          rawScore: correct,
+          totalQuestions: ex.questions.length,
+          timeSpentSeconds,
+          answers: answersList
+        },
+        state
+      );
     }
 
     state.examSubmitted = true;
@@ -1154,9 +1751,9 @@
     renderApp();
   };
 
-  // ==========================================
-  // 4. GIAO DIỆN SỔ TAY CÂU SAI & LỊCH SỬ ĐIỂM
-  // ==========================================
+  // =========================================================================
+  // 4. STUDENT PORTAL: SỔ TAY CÂU SAI (MISTAKES)
+  // =========================================================================
   function renderMistakesView() {
     const mistakeList = Object.values(state.mistakes);
 
@@ -1212,50 +1809,11 @@
             .join("")}
         `;
 
-    const historyHtml =
-      state.examHistory.length === 0
-        ? `<p style="color:var(--text-muted);">Chưa có lịch sử làm đề thi nào.</p>`
-        : `
-          <div style="background:white; border:1px solid var(--border); border-radius:var(--radius-lg); overflow:hidden;">
-            <table style="width:100%; border-collapse:collapse; text-align:left; font-size:0.92rem;">
-              <thead>
-                <tr style="background:#F8FAFC; border-bottom:1px solid var(--border);">
-                  <th style="padding:12px 16px;">Tên đề thi</th>
-                  <th style="padding:12px 16px;">Điểm (Thang 10)</th>
-                  <th style="padding:12px 16px;">Số câu đúng</th>
-                  <th style="padding:12px 16px;">Thời gian làm</th>
-                  <th style="padding:12px 16px;">Ngày giờ</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${state.examHistory
-                  .map(
-                    (h) => `
-                    <tr style="border-bottom:1px solid var(--border);">
-                      <td style="padding:12px 16px; font-weight:600;">${h.examTitle}</td>
-                      <td style="padding:12px 16px;"><span style="background:#D1FAE5; color:#065F46; font-weight:800; padding:3px 10px; border-radius:99px;">${h.score10} đ</span></td>
-                      <td style="padding:12px 16px;">${h.correct}/${h.total} câu</td>
-                      <td style="padding:12px 16px;">${h.timeSpent}</td>
-                      <td style="padding:12px 16px; color:var(--text-muted);">${h.date}</td>
-                    </tr>
-                  `
-                  )
-                  .join("")}
-              </tbody>
-            </table>
-          </div>
-        `;
-
     return `
       <div class="section-header">
-        <h2>📓 Sổ Tay Câu Hay Sai (Mistake Notebook)</h2>
+        <h2>📓 Sổ Tay Câu Hay Sai Của Em</h2>
       </div>
       ${mistakeSectionHtml}
-
-      <div class="section-header" style="margin-top:36px;">
-        <h2>📊 Lịch Sử Làm Đề Kiểm Tra</h2>
-      </div>
-      ${historyHtml}
     `;
   }
 
@@ -1263,7 +1821,7 @@
     return `
       <div style="margin-bottom:16px; display:flex; justify-content:space-between; align-items:center;">
         <button class="btn btn-outline btn-sm" onclick="exitMistakePractice()">⬅ Quay lại xem Sổ tay</button>
-        <span style="font-weight:700; color:var(--danger);">Chế độ: Làm lại ${mistakeList.length} câu từng sai (Câu nào làm đúng sẽ được gợi ý xóa khỏi Sổ tay!)</span>
+        <span style="font-weight:700; color:var(--danger);">Chế độ: Làm lại ${mistakeList.length} câu từng sai</span>
       </div>
       ${mistakeList
         .map((m, idx) =>
@@ -1316,21 +1874,21 @@
         delete state.mistakes[qId];
       }
     });
-    saveJSON(STORAGE_KEYS.MISTAKES, state.mistakes);
+    persistActiveStudentState();
     state.mistakePracticeActive = false;
     renderApp();
   };
 
   window.removeMistakeItem = function (qId) {
     delete state.mistakes[qId];
-    saveJSON(STORAGE_KEYS.MISTAKES, state.mistakes);
+    persistActiveStudentState();
     renderApp();
   };
 
-  // ==========================================
-  // 5. GIAO DIỆN BÁO CÁO HỌC TẬP & PHÂN TÍCH NĂNG LỰC (ANALYTICS)
-  // ==========================================
-  function calculateSkillStats() {
+  // =========================================================================
+  // 5. STUDENT PORTAL: THÀNH TÍCH CÁ NHÂN CỦA EM (STUDENT PROGRESS)
+  // =========================================================================
+  function calculateSkillStatsFromHistory(examHistoryList) {
     const skills = {
       pronunciation: { name: "Ngữ âm (Pronunciation & Stress)", correct: 0, total: 0, icon: "🗣️" },
       vocabulary: { name: "Từ vựng (Vocabulary & Collocations)", correct: 0, total: 0, icon: "📖" },
@@ -1339,11 +1897,11 @@
       writing: { name: "Viết lại câu & Giao tiếp (Writing)", correct: 0, total: 0, icon: "✏️" }
     };
 
-    state.examHistory.forEach((h) => {
+    (examHistoryList || []).forEach((h) => {
       if (!h.questions || !h.answers) return;
       h.questions.forEach((q) => {
         const sec = (q.section || "").toLowerCase();
-        let targetKey = "grammar"; // Mặc định
+        let targetKey = "grammar";
         if (sec.includes("pronunciation") || sec.includes("ngữ âm") || sec.includes("stress")) {
           targetKey = "pronunciation";
         } else if (sec.includes("vocabulary") || sec.includes("từ vựng")) {
@@ -1366,125 +1924,317 @@
     return skills;
   }
 
-  function renderAnalyticsView(stats) {
-    const currentUser = window.EY8_Supabase ? window.EY8_Supabase.getCurrentUser() : { fullName: "Em Lớp 8", role: "student" };
-    const isAdmin = window.EY8_Supabase ? window.EY8_Supabase.isAdmin() : false;
-    const skills = calculateSkillStats();
-    const units = window.STUDY_DATA.units || [];
-
-    // Tính chuỗi ngày học từ examHistory
+  function renderStudentProgressView(stats) {
+    const currentUser = window.EY8_Supabase.getCurrentUser() || { fullName: "Em Lớp 8" };
     const distinctDates = new Set(state.examHistory.map((h) => (h.date ? h.date.split(" ")[1] : "")));
     const streakDays = Math.max(1, distinctDates.size);
 
-    const bannerHtml = isAdmin
-      ? `
-        <!-- Hero Banner Dành Cho Quản Trị Viên (Admin) -->
-        <div class="analytics-hero" style="background: linear-gradient(135deg, #1E1B4B 0%, #312E81 100%);">
-          <div class="analytics-student-info">
-            <div class="student-avatar" style="background:#4338CA; border-color:#818CF8;">👑</div>
-            <div>
-              <div style="font-size:0.85rem; color:#C7D2FE; text-transform:uppercase; letter-spacing:0.5px;">Bảng Điều Khiển Quản Trị & Báo Cáo Phụ Huynh</div>
-              <h2 style="font-size:1.6rem; font-weight:800; margin:2px 0;">Xin chào, ${currentUser.fullName}</h2>
-              <div style="font-size:0.85rem; color:#E0E7FF; margin-top:4px;">Theo dõi tiến độ, phân tích năng lực và xem chi tiết bài làm của học sinh</div>
-            </div>
-          </div>
-
-          <div style="display:flex; gap:10px; flex-wrap:wrap;">
-            <button class="btn btn-outline-white btn-sm" onclick="openSupabaseSettingsModal()">
-              ⚙️ Cài đặt Supabase Cloud
-            </button>
-            <button class="btn btn-white btn-sm" onclick="syncCloudNow()">
-              🔄 Tải dữ liệu mới nhất
-            </button>
-          </div>
-        </div>
-      `
-      : `
-        <!-- Hero Banner Dành Cho Học Sinh (Tuyệt đối không có nút kỹ thuật phức tạp) -->
-        <div class="analytics-hero" style="background: linear-gradient(135deg, #0F172A 0%, #1E293B 100%);">
-          <div class="analytics-student-info">
-            <div class="student-avatar" style="background:#4F46E5; border-color:#818CF8;">🎓</div>
-            <div>
-              <div style="font-size:0.85rem; color:#94A3B8; text-transform:uppercase; letter-spacing:0.5px;">Góc Học Tập Cá Nhân • Lớp 8</div>
-              <h2 style="font-size:1.6rem; font-weight:800; margin:2px 0;">Chào mừng em, ${currentUser.fullName}!</h2>
-              <div class="streak-pill">🔥 Chuỗi ngày học liên tục: <strong>${streakDays} ngày</strong></div>
-            </div>
-          </div>
-
-          <div style="background: rgba(255,255,255,0.08); padding: 12px 18px; border-radius: var(--radius-md); font-size:0.88rem; max-width: 320px; border: 1px solid rgba(255,255,255,0.15);">
-            🌟 <em>Mỗi ngày luyện 1 bài tập và thuộc 5 từ mới để đạt điểm 10 kì thi Học kì 1 nhé!</em>
-          </div>
-        </div>
-      `;
-
     return `
-      ${bannerHtml}
+      <div class="analytics-hero" style="background: linear-gradient(135deg, #312E81 0%, #4F46E5 100%);">
+        <div class="analytics-student-info">
+          <div class="student-avatar" style="background:#6366F1; border-color:#A5B4FC;">🏆</div>
+          <div>
+            <div style="font-size:0.85rem; color:#C7D2FE; text-transform:uppercase; letter-spacing:0.5px;">Bảng Thành Tích Cá Nhân</div>
+            <h2 style="font-size:1.6rem; font-weight:800; margin:2px 0;">Học sinh: ${currentUser.fullName}</h2>
+            <div class="streak-pill">🔥 Chuỗi ngày học chăm chỉ: <strong>${streakDays} ngày</strong></div>
+          </div>
+        </div>
+        <div style="background: rgba(255,255,255,0.14); padding: 12px 18px; border-radius: 12px; font-size:0.88rem; max-width: 300px;">
+          🌟 <em>Mọi bài làm của em đều được lưu lại để xem sự tiến bộ qua từng ngày!</em>
+        </div>
+      </div>
 
-      <!-- 4 Thẻ KPI Chỉ số tổng quan -->
       <div class="kpi-grid">
         <div class="kpi-card">
           <div class="kpi-icon" style="background:#EEF2FF; color:#4F46E5;">🎯</div>
           <div>
             <div class="kpi-val">${stats.avgExamScore} <span style="font-size:0.9rem; font-weight:600; color:var(--text-muted);">/10</span></div>
-            <div class="kpi-label">Điểm thi trung bình</div>
+            <div class="kpi-label">Điểm trung bình của em</div>
           </div>
         </div>
-
         <div class="kpi-card">
           <div class="kpi-icon" style="background:#ECFDF5; color:#10B981;">📝</div>
           <div>
             <div class="kpi-val">${state.examHistory.length}</div>
-            <div class="kpi-label">Lượt làm đề & bài tập</div>
+            <div class="kpi-label">Đề & Bài tập đã hoàn thành</div>
           </div>
         </div>
-
         <div class="kpi-card">
           <div class="kpi-icon" style="background:#FEF3C7; color:#D97706;">📖</div>
           <div>
-            <div class="kpi-val">${stats.learnedCount} <span style="font-size:0.9rem; font-weight:600; color:var(--text-muted);">/ ${stats.totalVocab} từ</span></div>
-            <div class="kpi-label">Từ vựng đã thuộc (${Math.round((stats.learnedCount / (stats.totalVocab || 1)) * 100)}%)</div>
+            <div class="kpi-val">${stats.learnedCount} <span style="font-size:0.9rem; font-weight:600; color:var(--text-muted);">/ ${stats.totalVocab}</span></div>
+            <div class="kpi-label">Từ vựng đã thuộc</div>
           </div>
         </div>
-
         <div class="kpi-card">
-          <div class="kpi-icon" style="background:#FEE2E2; color:#EF4444;">⚠️</div>
+          <div class="kpi-icon" style="background:#FEE2E2; color:#EF4444;">📓</div>
           <div>
             <div class="kpi-val">${stats.mistakeCount}</div>
-            <div class="kpi-label">Câu sai đang trong Sổ tay</div>
+            <div class="kpi-label">Câu cần sửa trong Sổ tay</div>
           </div>
         </div>
       </div>
 
-      <!-- 2 Cột: Phân tích Năng lực & Tiến độ theo từng Unit -->
+      <div class="analytics-box">
+        <div class="analytics-box-title">
+          <span>📋 Lịch Sử Các Bài Đã Làm Của Em</span>
+          <span style="font-size:0.85rem; color:var(--text-muted); font-weight:500;">Bấm "Xem lại bài" để xem đáp án & giải thích</span>
+        </div>
+        ${renderHistoryTableHtml(state.examHistory, false)}
+      </div>
+    `;
+  }
+
+  function renderHistoryTableHtml(historyList, isAdminInspect) {
+    if (!historyList || historyList.length === 0) {
+      return `<p style="color:var(--text-muted); text-align:center; padding:28px 0;">Chưa có bài kiểm tra nào được nộp.</p>`;
+    }
+    return `
+      <div style="overflow-x:auto;">
+        <table class="custom-table">
+          <thead>
+            <tr>
+              <th>Thời gian nộp</th>
+              <th>Tên đề kiểm tra / bài tập</th>
+              <th>Điểm số</th>
+              <th>Số câu đúng</th>
+              <th>Thời gian làm</th>
+              <th>Chi tiết</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${historyList
+              .map((h, idx) => {
+                let scoreColor = "#065F46";
+                let scoreBg = "#D1FAE5";
+                if (h.score10 < 5.0) {
+                  scoreColor = "#991B1B";
+                  scoreBg = "#FEE2E2";
+                } else if (h.score10 < 8.0) {
+                  scoreColor = "#92400E";
+                  scoreBg = "#FEF3C7";
+                }
+
+                return `
+                  <tr>
+                    <td style="color:var(--text-muted); font-size:0.85rem;">${h.date}</td>
+                    <td><strong>${h.examTitle}</strong></td>
+                    <td>
+                      <span style="background:${scoreBg}; color:${scoreColor}; font-weight:800; padding:4px 10px; border-radius:99px;">
+                        ${h.score10} đ
+                      </span>
+                    </td>
+                    <td><strong>${h.correct} / ${h.total}</strong> câu</td>
+                    <td>${h.timeSpent}</td>
+                    <td>
+                      <button class="btn btn-outline btn-sm" onclick="openAttemptDetailModal(${idx}, ${isAdminInspect ? "true" : "false"})">
+                        🔍 ${isAdminInspect ? "Soi bài làm" : "Xem lại bài"}
+                      </button>
+                    </td>
+                  </tr>
+                `;
+              })
+              .join("")}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  // =========================================================================
+  // =========================================================================
+  // PHẦN QUẢN TRỊ VIÊN (ADMIN PORTAL - 4 PHÂN HỆ CHUYÊN BIỆT)
+  // =========================================================================
+  // =========================================================================
+
+  async function refreshAdminUsersList() {
+    if (!window.EY8_Supabase) return;
+    state.allUsers = await window.EY8_Supabase.getAllUsers();
+    const students = state.allUsers.filter((u) => u.role === "student");
+    if (students.length > 0 && !students.some((s) => s.username === state.adminSelectedStudent)) {
+      state.adminSelectedStudent = students[0].username;
+    }
+    renderApp();
+  }
+
+  async function loadAdminInspectedStudent(username) {
+    if (!window.EY8_Supabase) return;
+    state.adminSelectedStudent = username;
+
+    if (state.allUsers.length === 0) {
+      state.allUsers = await window.EY8_Supabase.getAllUsers();
+    }
+    const targetUser = state.allUsers.find((u) => u.username === username);
+    const record = await window.EY8_Supabase.fetchStudentFullRecord(
+      username,
+      targetUser ? targetUser.id : null
+    );
+
+    const newRecord = {
+      learnedVocab: {},
+      unitScores: {},
+      examHistory: [],
+      mistakes: {}
+    };
+
+    if (record && record.snapshot) {
+      newRecord.learnedVocab = record.snapshot.learnedVocab || {};
+      newRecord.unitScores = record.snapshot.unitScores || {};
+      newRecord.examHistory = record.snapshot.examHistory || [];
+      newRecord.mistakes = record.snapshot.mistakes || {};
+    }
+
+    // Ghép thêm dữ liệu từ các bảng quan hệ Supabase nếu có
+    if (record && record.progress && record.progress.length > 0) {
+      record.progress.forEach((p) => {
+        if (p.status === "mastered") newRecord.learnedVocab[p.vocabulary_id] = true;
+      });
+    }
+
+    if (record && record.attempts && record.attempts.length > 0) {
+      const existingIds = new Set(newRecord.examHistory.map((h) => h.id || `${h.examId}_${h.date}`));
+      record.attempts.forEach((att) => {
+        if (!existingIds.has(att.id)) {
+          const reconstructedQuestions = [];
+          const answersRecord = {};
+          if (att.attempt_answers && att.attempt_answers.length > 0) {
+            att.attempt_answers.forEach((ans) => {
+              answersRecord[ans.question_id] = ans.selected_option_index;
+              const qObj = findQuestionById(ans.question_id);
+              if (qObj) reconstructedQuestions.push(qObj);
+            });
+          }
+          newRecord.examHistory.push({
+            id: att.id,
+            examId: att.exercise_id,
+            examTitle:
+              att.exercises && att.exercises.title
+                ? att.exercises.title
+                : `Bài kiểm tra ${att.exercise_id}`,
+            correct: att.raw_score,
+            total: att.total_questions,
+            score10: Number(Number(att.score).toFixed(2)),
+            timeSpent: formatTime(att.time_spent_seconds || 0),
+            date: new Date(att.completed_at).toLocaleString("vi-VN"),
+            answers: answersRecord,
+            questions: reconstructedQuestions
+          });
+        }
+      });
+    }
+
+    state.inspectedStudentRecord = newRecord;
+    renderApp();
+  }
+
+  window.handleAdminChangeStudent = function (username) {
+    loadAdminInspectedStudent(username);
+  };
+
+  // -------------------------------------------------------------------------
+  // ADMIN TAB 1: GIÁM SÁT HỌC SINH (MONITORING & ANALYTICS)
+  // -------------------------------------------------------------------------
+  function renderAdminMonitorView() {
+    const students = state.allUsers.filter((u) => u.role === "student");
+    const selectedStudentObj =
+      students.find((s) => s.username === state.adminSelectedStudent) || {
+        fullName: "Em Lớp 8",
+        username: "em_lop8"
+      };
+
+    const rec = state.inspectedStudentRecord;
+    const stats = computeStatsFromRecord(rec);
+    const skills = calculateSkillStatsFromHistory(rec.examHistory);
+    const units = window.STUDY_DATA.units || [];
+    const mistakeList = Object.values(rec.mistakes || {});
+
+    return `
+      <!-- Thanh chọn Học sinh để giám sát -->
+      <div class="admin-control-bar">
+        <div style="display:flex; align-items:center; gap:14px; flex-wrap:wrap;">
+          <span style="font-weight:800; color:var(--text-main);">🎓 Học sinh đang giám sát:</span>
+          <select class="form-control-select" style="width:auto; min-width:240px; font-weight:700;" onchange="handleAdminChangeStudent(this.value)">
+            ${students
+              .map(
+                (s) => `
+                <option value="${s.username}" ${s.username === state.adminSelectedStudent ? "selected" : ""}>
+                  ${s.fullName} (username: ${s.username})
+                </option>
+              `
+              )
+              .join("")}
+          </select>
+        </div>
+        <div style="display:flex; gap:10px; flex-wrap:wrap;">
+          <button class="btn btn-outline btn-sm" onclick="loadAdminInspectedStudent('${state.adminSelectedStudent}')">
+            🔄 Cập nhật tiến độ mới nhất từ máy của em
+          </button>
+          <button class="btn btn-primary btn-sm" onclick="switchAdminTab('admin-assignments')">
+            🎯 Giao bài tập mới cho ${selectedStudentObj.fullName}
+          </button>
+        </div>
+      </div>
+
+      <!-- 4 KPI Giám sát Học sinh -->
+      <div class="kpi-grid">
+        <div class="kpi-card">
+          <div class="kpi-icon" style="background:#EEF2FF; color:#4F46E5;">🎯</div>
+          <div>
+            <div class="kpi-val">${stats.avgExamScore} <span style="font-size:0.9rem; font-weight:600; color:var(--text-muted);">/10</span></div>
+            <div class="kpi-label">Điểm trung bình các lần thi</div>
+          </div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-icon" style="background:#ECFDF5; color:#10B981;">📝</div>
+          <div>
+            <div class="kpi-val">${rec.examHistory.length} bài</div>
+            <div class="kpi-label">Tổng số lượt nộp bài</div>
+          </div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-icon" style="background:#FEF3C7; color:#D97706;">📖</div>
+          <div>
+            <div class="kpi-val">${stats.learnedCount} / ${stats.totalVocab}</div>
+            <div class="kpi-label">Từ vựng đã thuộc (${Math.round((stats.learnedCount / (stats.totalVocab || 1)) * 100)}%)</div>
+          </div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-icon" style="background:#FEE2E2; color:#EF4444;">⚠️</div>
+          <div>
+            <div class="kpi-val">${stats.mistakeCount} câu</div>
+            <div class="kpi-label">Đang làm sai chưa khắc phục</div>
+          </div>
+        </div>
+      </div>
+
       <div class="analytics-two-col">
-        <!-- Cột 1: Phân tích kỹ năng dạng bài -->
+        <!-- Cột 1: Chẩn đoán lỗ hổng kiến thức 5 kỹ năng -->
         <div class="analytics-box">
           <div class="analytics-box-title">
-            <span>📊 Đánh Giá Năng Lực Theo Dạng Bài</span>
-            <span style="font-size:0.8rem; font-weight:500; color:var(--text-muted);">(Dựa trên các bài đã nộp)</span>
+            <span>🩺 Chẩn Đoán Năng Lực & Lỗ Hổng Kiến Thức</span>
+            <span style="font-size:0.78rem; color:var(--text-muted);">${selectedStudentObj.fullName}</span>
           </div>
 
           ${
-            state.examHistory.length === 0
+            rec.examHistory.length === 0
               ? `
-                <div style="text-align:center; padding:30px 10px; color:var(--text-muted);">
-                  <div style="font-size:2rem; margin-bottom:8px;">⏳</div>
-                  <p>Em chưa nộp bài kiểm tra nào.<br>Hãy làm ít nhất 1 bài để hệ thống phân tích điểm mạnh & điểm yếu nhé!</p>
-                  <button class="btn btn-primary btn-sm" style="margin-top:12px;" onclick="switchMainTab('exams')">🚀 Làm đề kiểm tra ngay</button>
+                <div style="text-align:center; padding:32px 12px; color:var(--text-muted);">
+                  <div style="font-size:2.2rem; margin-bottom:8px;">📭</div>
+                  <p>Học sinh <strong>${selectedStudentObj.fullName}</strong> chưa nộp bài kiểm tra nào.<br>Bạn hãy vào mục <strong>"Giao Bài Tập"</strong> để giao đề cho em làm nhé!</p>
                 </div>
               `
               : Object.keys(skills)
                   .map((k) => {
                     const sk = skills[k];
                     const pct = sk.total > 0 ? Math.round((sk.correct / sk.total) * 100) : 0;
-                    let color = "#10B981"; // Xanh lá
-                    let statusLabel = "🟢 Vững vàng";
+                    let color = "#10B981";
+                    let statusLabel = "🟢 Nắm vững";
                     if (pct < 60) {
-                      color = "#EF4444"; // Đỏ
-                      statusLabel = "🔴 Cần ôn lại ngay";
+                      color = "#EF4444";
+                      statusLabel = "🔴 Hổng kiến thức (Cần kèm thêm)";
                     } else if (pct < 80) {
-                      color = "#F59E0B"; // Vàng
-                      statusLabel = "🟡 Tạm ổn (Cần luyện thêm)";
+                      color = "#F59E0B";
+                      statusLabel = "🟡 Khá (Hay nhầm câu bẫy)";
                     }
 
                     return `
@@ -1501,37 +2251,30 @@
                   })
                   .join("")
           }
-
-          <div style="margin-top:18px; padding:12px 16px; background:#F8FAFC; border-radius:var(--radius-sm); border:1px solid var(--border); font-size:0.84rem; color:var(--text-muted);">
-            💡 <strong>Lời khuyên dành cho phụ huynh / người hướng dẫn:</strong> Kỹ năng nào dưới <strong>70%</strong>, bạn hãy nhắc em mở tab <em>"Học theo Unit"</em> để đọc lại phần đóng khung <em>"Bẫy đề thi hay gặp"</em> tương ứng.
-          </div>
         </div>
 
-        <!-- Cột 2: Tiến độ 6 Unit Học kì 1 -->
+        <!-- Cột 2: Kiểm tra tiến độ từng Unit của Học sinh -->
         <div class="analytics-box">
           <div class="analytics-box-title">
-            <span>📚 Tiến Độ 6 Unit Học Kì 1</span>
-            <button class="btn btn-outline btn-sm" onclick="switchMainTab('unit-study')">Chi tiết Unit ➔</button>
+            <span>📚 Tiến Độ Từng Unit Của ${selectedStudentObj.fullName}</span>
           </div>
-
-          <div style="display:flex; flex-direction:column; gap:12px;">
+          <div style="display:flex; flex-direction:column; gap:10px;">
             ${units
               .map((u) => {
                 const totalV = u.vocabulary.length;
-                const learnedV = u.vocabulary.filter((v) => state.learnedVocab[v.id]).length;
+                const learnedV = u.vocabulary.filter((v) => rec.learnedVocab[v.id]).length;
                 const pct = Math.round((learnedV / totalV) * 100);
-                const bestScore = state.unitScores[u.id];
+                const bestScore = rec.unitScores[u.id];
 
                 return `
-                  <div style="padding:12px 14px; border:1px solid var(--border); border-radius:var(--radius-sm); display:flex; align-items:center; justify-content:space-between; gap:12px;">
-                    <div style="display:flex; align-items:center; gap:10px;">
-                      <span style="font-size:1.4rem;">${u.icon}</span>
-                      <div>
-                        <div style="font-weight:700; font-size:0.9rem;">Unit ${u.number}: ${u.title}</div>
-                        <div style="font-size:0.78rem; color:var(--text-muted);">Từ vựng: ${learnedV}/${totalV} (${pct}%) • Điểm bài tập: ${bestScore !== undefined ? bestScore + "/" + u.practice.length : "Chưa làm"}</div>
+                  <div style="padding:10px 14px; border:1px solid var(--border); border-radius:10px; display:flex; align-items:center; justify-content:space-between; gap:10px;">
+                    <div>
+                      <div style="font-weight:700; font-size:0.9rem;">${u.icon} Unit ${u.number}: ${u.title}</div>
+                      <div style="font-size:0.8rem; color:var(--text-muted);">
+                        Thuộc từ: <strong>${learnedV}/${totalV} từ (${pct}%)</strong> • Bài tập Unit: <strong style="color:${bestScore !== undefined ? "var(--success)" : "var(--danger)"};">${bestScore !== undefined ? bestScore + "/" + u.practice.length + " câu" : "Chưa làm"}</strong>
                       </div>
                     </div>
-                    <button class="btn btn-outline btn-sm" onclick="openUnitWithSubTab('${u.id}', 'vocab')">Ôn tập</button>
+                    <span style="font-weight:800; font-size:0.82rem; color:${pct === 100 ? "var(--success)" : "var(--primary)"};">${pct}%</span>
                   </div>
                 `;
               })
@@ -1540,66 +2283,37 @@
         </div>
       </div>
 
-      <!-- Bảng Nhật ký Làm bài Chi tiết (Có nút xem lại chi tiết bài làm) -->
+      <!-- Bảng Soi Chi Tiết Bài Làm Của Học Sinh -->
+      <div class="analytics-box" style="margin-bottom:24px;">
+        <div class="analytics-box-title">
+          <span>🔍 Nhật Ký Nộp Bài & Soi Chi Tiết Bài Làm Của ${selectedStudentObj.fullName}</span>
+          <span style="font-size:0.82rem; color:var(--text-muted);">Kiểm tra thời gian làm bài thực tế và từng câu trả lời</span>
+        </div>
+        ${renderHistoryTableHtml(rec.examHistory, true)}
+      </div>
+
+      <!-- Danh sách các câu học sinh đang làm sai -->
       <div class="analytics-box">
         <div class="analytics-box-title">
-          <span>📋 Nhật Ký Làm Bài Thi & Kiểm Tra Chi Tiết</span>
-          <span style="font-size:0.85rem; color:var(--text-muted); font-weight:500;">(Bấm "Xem chi tiết" để xem lại bài làm của em)</span>
+          <span>⚠️ Các Câu ${selectedStudentObj.fullName} Đang Làm Sai (${mistakeList.length} câu)</span>
         </div>
-
         ${
-          state.examHistory.length === 0
-            ? `<p style="color:var(--text-muted); text-align:center; padding:24px 0;">Chưa có dữ liệu bài làm nào được ghi nhận.</p>`
+          mistakeList.length === 0
+            ? `<p style="color:var(--text-muted); text-align:center; padding:18px 0;">Hiện không có câu làm sai nào tồn đọng.</p>`
             : `
-              <div style="overflow-x:auto;">
-                <table class="custom-table">
-                  <thead>
-                    <tr>
-                      <th>Thời gian nộp</th>
-                      <th>Tên đề kiểm tra / bài tập</th>
-                      <th>Điểm số</th>
-                      <th>Số câu đúng</th>
-                      <th>Thời gian làm</th>
-                      <th>Thao tác</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    ${state.examHistory
-                      .map((h, idx) => {
-                        let scoreColor = "#065F46";
-                        let scoreBg = "#D1FAE5";
-                        if (h.score10 < 5.0) {
-                          scoreColor = "#991B1B";
-                          scoreBg = "#FEE2E2";
-                        } else if (h.score10 < 8.0) {
-                          scoreColor = "#92400E";
-                          scoreBg = "#FEF3C7";
-                        }
-
-                        return `
-                          <tr>
-                            <td style="color:var(--text-muted); font-size:0.85rem;">${h.date}</td>
-                            <td>
-                              <span style="font-weight:700; color:var(--text-main);">${h.examTitle}</span>
-                            </td>
-                            <td>
-                              <span style="background:${scoreBg}; color:${scoreColor}; font-weight:800; padding:4px 10px; border-radius:99px;">
-                                ${h.score10} đ
-                              </span>
-                            </td>
-                            <td><strong>${h.correct} / ${h.total}</strong> câu</td>
-                            <td>${h.timeSpent}</td>
-                            <td>
-                              <button class="btn btn-outline btn-sm" onclick="openAttemptDetailModal(${idx})">
-                                👁️ Xem chi tiết
-                              </button>
-                            </td>
-                          </tr>
-                        `;
-                      })
-                      .join("")}
-                  </tbody>
-                </table>
+              <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(320px, 1fr)); gap:12px;">
+                ${mistakeList
+                  .slice(0, 12)
+                  .map(
+                    (m) => `
+                    <div style="padding:12px 14px; border:1px solid #FECACA; background:#FEF2F2; border-radius:10px; font-size:0.86rem;">
+                      <div style="font-size:0.75rem; font-weight:700; color:#DC2626; margin-bottom:4px;">Nguồn: ${m.source}</div>
+                      <div style="font-weight:700; margin-bottom:6px;">${m.question}</div>
+                      <div style="color:#065F46; font-weight:600;">✔ Đáp án đúng: ${(m.options && m.options[m.answer]) || ""}</div>
+                    </div>
+                  `
+                  )
+                  .join("")}
               </div>
             `
         }
@@ -1607,18 +2321,661 @@
     `;
   }
 
-  // ==========================================
-  // CÁC CỬA SỔ MODAL POPUP
-  // ==========================================
+  // -------------------------------------------------------------------------
+  // ADMIN TAB 2: GIAO BÀI TẬP CHO EM (ASSIGNMENT MANAGER)
+  // -------------------------------------------------------------------------
+  function renderAdminAssignmentsView() {
+    const students = state.allUsers.filter((u) => u.role === "student");
+    const units = window.STUDY_DATA.units || [];
+    const exams = window.STUDY_DATA.exams || [];
+    const assignments = state.systemStore.assignments || [];
 
+    return `
+      <div class="section-header">
+        <div>
+          <h2>🎯 Giao Bài Tập & Nhiệm Vụ Bắt Buộc Cho Học Sinh</h2>
+          <p style="font-size:0.9rem; color:var(--text-muted);">Bài tập bạn giao tại đây sẽ hiển thị nổi bật ngay đầu trang "Bàn Học Của Em" khi em đăng nhập.</p>
+        </div>
+      </div>
+
+      <div class="analytics-two-col">
+        <!-- Form tạo nhiệm vụ mới -->
+        <div class="analytics-box">
+          <div class="analytics-box-title">
+            <span>➕ Tạo Nhiệm Vụ Giao Bài Mới</span>
+          </div>
+
+          <form onsubmit="event.preventDefault(); handleAdminCreateAssignment();">
+            <div class="form-field">
+              <label>Giao cho Học sinh</label>
+              <select id="assign-student" class="form-control-select">
+                <option value="all">👨‍🎓 Tất cả học sinh</option>
+                ${students
+                  .map(
+                    (s) =>
+                      `<option value="${s.username}" ${s.username === state.adminSelectedStudent ? "selected" : ""}>${s.fullName} (${s.username})</option>`
+                  )
+                  .join("")}
+              </select>
+            </div>
+
+            <div class="form-field">
+              <label>Chọn Đề thi hoặc Unit yêu cầu làm</label>
+              <select id="assign-target" class="form-control-select" required>
+                <optgroup label="📝 Các Đề Kiểm Tra (15 Phút, Giữa Kì, Cuối Kì)">
+                  ${exams
+                    .map((ex) => `<option value="exam|${ex.id}|${ex.title}">📝 ${ex.title}</option>`)
+                    .join("")}
+                </optgroup>
+                <optgroup label="📚 Học Từ Vựng & Làm Bài Tập Unit (1–6)">
+                  ${units
+                    .map(
+                      (u) =>
+                        `<option value="unit|${u.id}|Ôn tập & Làm bài tập Unit ${u.number}: ${u.title}">📚 Unit ${u.number}: ${u.title} (${u.viTitle})</option>`
+                    )
+                    .join("")}
+                </optgroup>
+              </select>
+            </div>
+
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px;">
+              <div class="form-field">
+                <label>Điểm mục tiêu cần đạt (Thang 10)</label>
+                <input id="assign-minscore" type="number" step="0.5" min="5" max="10" value="8.0" class="form-control-input" required />
+              </div>
+              <div class="form-field">
+                <label>Hạn hoàn thành</label>
+                <input id="assign-duedate" type="text" placeholder="Ví dụ: Tối nay 21h / Chủ nhật" value="Trong ngày hôm nay" class="form-control-input" required />
+              </div>
+            </div>
+
+            <div class="form-field">
+              <label>Lời nhắn / Dặn dò của Anh/Chị</label>
+              <input id="assign-note" type="text" placeholder="Ví dụ: Em làm cẩn thận không khoanh vội nhé, tối anh kiểm tra!" class="form-control-input" />
+            </div>
+
+            <button type="submit" class="btn btn-primary" style="width:100%; padding:12px;">
+              📌 Giao Nhiệm Vụ Này Cho Em Ngay
+            </button>
+          </form>
+        </div>
+
+        <!-- Danh sách nhiệm vụ đã giao & Trạng thái hoàn thành -->
+        <div class="analytics-box">
+          <div class="analytics-box-title">
+            <span>📋 Danh Sách Nhiệm Vụ Đã Giao (${assignments.length})</span>
+          </div>
+
+          ${
+            assignments.length === 0
+              ? `<p style="color:var(--text-muted); text-align:center; padding:32px 0;">Bạn chưa giao nhiệm vụ nào. Hãy tạo nhiệm vụ ở cột bên trái nhé!</p>`
+              : `
+                <div style="display:flex; flex-direction:column; gap:12px;">
+                  ${assignments
+                    .map((task) => {
+                      const evalRes = evaluateAssignmentStatus(task, state.inspectedStudentRecord);
+                      return `
+                        <div style="padding:14px; border:1px solid ${evalRes.isCompleted ? "#A7F3D0" : "var(--border)"}; background:${evalRes.isCompleted ? "#F0FDF4" : "#F8FAFC"}; border-radius:12px;">
+                          <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px; margin-bottom:6px;">
+                            <div>
+                              <span style="font-size:0.72rem; font-weight:800; padding:2px 8px; border-radius:99px; background:${evalRes.isCompleted ? "#10B981" : "#F59E0B"}; color:white;">
+                                ${evalRes.isCompleted ? "✅ ĐÃ HOÀN THÀNH" : "⏳ CHƯA HOÀN THÀNH"}
+                              </span>
+                              <span style="font-size:0.78rem; color:var(--text-muted); margin-left:6px;">Giao ngày ${task.createdAt} • Hạn: ${task.dueDate}</span>
+                            </div>
+                            <button class="btn btn-outline btn-sm" style="color:var(--danger); padding:2px 8px;" onclick="handleAdminDeleteAssignment('${task.id}')">Xóa</button>
+                          </div>
+                          <div style="font-weight:800; font-size:0.95rem; margin-bottom:4px;">${task.title}</div>
+                          <div style="font-size:0.82rem; color:#334155;">
+                            🎯 Mục tiêu: <strong>≥ ${task.minScore} điểm</strong> • Kết quả của em: <strong>${evalRes.bestScoreText}</strong>
+                          </div>
+                          ${task.note ? `<div style="font-size:0.8rem; color:var(--text-muted); margin-top:4px; font-style:italic;">💬 "${task.note}"</div>` : ""}
+                        </div>
+                      `;
+                    })
+                    .join("")}
+                </div>
+              `
+          }
+        </div>
+      </div>
+    `;
+  }
+
+  window.handleAdminCreateAssignment = async function () {
+    const studentVal = document.getElementById("assign-student")?.value || "all";
+    const targetRaw = document.getElementById("assign-target")?.value || "";
+    const minScore = Number(document.getElementById("assign-minscore")?.value || 8);
+    const dueDate = document.getElementById("assign-duedate")?.value || "Trong tuần";
+    const note = document.getElementById("assign-note")?.value || "";
+
+    const parts = targetRaw.split("|");
+    if (parts.length < 3) return;
+
+    const newTask = {
+      id: "task_" + Date.now(),
+      studentUsername: studentVal,
+      targetType: parts[0],
+      targetId: parts[1],
+      title: parts[2],
+      minScore,
+      dueDate,
+      note,
+      createdAt: new Date().toLocaleDateString("vi-VN")
+    };
+
+    state.systemStore.assignments = state.systemStore.assignments || [];
+    state.systemStore.assignments.unshift(newTask);
+
+    if (window.EY8_Supabase) {
+      await window.EY8_Supabase.saveSystemStore(state.systemStore);
+    }
+    renderApp();
+    alert("✅ Đã giao bài tập thành công! Khi em mở web lên sẽ thấy ngay nhiệm vụ này.");
+  };
+
+  window.handleAdminDeleteAssignment = async function (taskId) {
+    state.systemStore.assignments = (state.systemStore.assignments || []).filter((t) => t.id !== taskId);
+    if (window.EY8_Supabase) {
+      await window.EY8_Supabase.saveSystemStore(state.systemStore);
+    }
+    renderApp();
+  };
+
+  // -------------------------------------------------------------------------
+  // ADMIN TAB 3: QUẢN LÝ ĐỀ THI & CÂU HỎI (CONTENT & QUESTION BANK MANAGER)
+  // -------------------------------------------------------------------------
+  function renderAdminContentView() {
+    const units = window.STUDY_DATA.units || [];
+    const exams = window.STUDY_DATA.exams || [];
+    const customQuestions = state.systemStore.customQuestions || [];
+    const customExams = state.systemStore.customExams || [];
+
+    const totalUnitQuestions = units.reduce((acc, u) => acc + (u.practice ? u.practice.length : 0), 0);
+    const totalExamQuestions = exams.reduce((acc, e) => acc + (e.questions ? e.questions.length : 0), 0);
+
+    return `
+      <div class="section-header">
+        <div>
+          <h2>🗂️ Quản Lý Ngân Hàng Đề Thi & Học Liệu</h2>
+          <p style="font-size:0.9rem; color:var(--text-muted);">Thêm câu hỏi trắc nghiệm mới từ đề cương ở trường của em hoặc tạo đề kiểm tra mới.</p>
+        </div>
+      </div>
+
+      <div class="kpi-grid">
+        <div class="kpi-card">
+          <div class="kpi-icon" style="background:#EEF2FF; color:#4F46E5;">📚</div>
+          <div>
+            <div class="kpi-val">${units.length} Units</div>
+            <div class="kpi-label">${totalUnitQuestions} câu bài tập theo Unit</div>
+          </div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-icon" style="background:#ECFDF5; color:#10B981;">📝</div>
+          <div>
+            <div class="kpi-val">${exams.length} Đề thi</div>
+            <div class="kpi-label">${totalExamQuestions} câu hỏi trong phòng thi</div>
+          </div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-icon" style="background:#FEF3C7; color:#D97706;">✨</div>
+          <div>
+            <div class="kpi-val">${customQuestions.length} câu</div>
+            <div class="kpi-label">Câu hỏi do Admin bổ sung thêm</div>
+          </div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-icon" style="background:#FCE7F3; color:#DB2777;">🏆</div>
+          <div>
+            <div class="kpi-val">${customExams.length} đề</div>
+            <div class="kpi-label">Đề kiểm tra riêng do Admin tạo</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="analytics-two-col">
+        <!-- Cột 1: Thêm câu hỏi trắc nghiệm mới -->
+        <div class="analytics-box">
+          <div class="analytics-box-title">
+            <span>➕ Thêm Câu Hỏi Trắc Nghiệm Mới Vào Đề / Unit</span>
+          </div>
+
+          <form onsubmit="event.preventDefault(); handleAdminAddQuestion();">
+            <div class="form-field">
+              <label>Thêm câu hỏi này vào đâu?</label>
+              <select id="admin-q-target" class="form-control-select" required>
+                <optgroup label="📝 Thêm vào Đề Kiểm Tra">
+                  ${exams.map((ex) => `<option value="exam|${ex.id}">📝 ${ex.title}</option>`).join("")}
+                </optgroup>
+                <optgroup label="📚 Thêm vào Bài tập Unit (1–6)">
+                  ${units.map((u) => `<option value="unit|${u.id}">📚 Unit ${u.number}: ${u.title}</option>`).join("")}
+                </optgroup>
+              </select>
+            </div>
+
+            <div class="form-field">
+              <label>Chuyên đề / Kỹ năng (Để hệ thống thống kê năng lực)</label>
+              <select id="admin-q-section" class="form-control-select">
+                <option value="II. Vocabulary & Grammar (Ngữ pháp)">✍️ Ngữ pháp (Grammar)</option>
+                <option value="II. Vocabulary (Từ vựng)">📖 Từ vựng (Vocabulary)</option>
+                <option value="I. Pronunciation (Ngữ âm)">🗣️ Ngữ âm (Pronunciation & Stress)</option>
+                <option value="III. Reading (Đọc hiểu)">📑 Đọc hiểu (Reading)</option>
+                <option value="IV. Writing (Viết lại câu)">✏️ Viết lại câu (Writing)</option>
+              </select>
+            </div>
+
+            <div class="form-field">
+              <label>Nội dung câu hỏi (Đề bài)</label>
+              <input id="admin-q-text" type="text" class="form-control-input" placeholder="Ví dụ: My sister is keen on _______ origami in her free time." required />
+            </div>
+
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
+              <div class="form-field">
+                <label>Phương án A</label>
+                <input id="admin-q-opt0" type="text" class="form-control-input" placeholder="A. make" required />
+              </div>
+              <div class="form-field">
+                <label>Phương án B</label>
+                <input id="admin-q-opt1" type="text" class="form-control-input" placeholder="B. making" required />
+              </div>
+              <div class="form-field">
+                <label>Phương án C</label>
+                <input id="admin-q-opt2" type="text" class="form-control-input" placeholder="C. to make" required />
+              </div>
+              <div class="form-field">
+                <label>Phương án D</label>
+                <input id="admin-q-opt3" type="text" class="form-control-input" placeholder="D. made" required />
+              </div>
+            </div>
+
+            <div class="form-field">
+              <label>Đáp án đúng là phương án nào?</label>
+              <select id="admin-q-correct" class="form-control-select">
+                <option value="0">Đáp án A</option>
+                <option value="1" selected>Đáp án B</option>
+                <option value="2">Đáp án C</option>
+                <option value="3">Đáp án D</option>
+              </select>
+            </div>
+
+            <div class="form-field">
+              <label>Lời giải thích chi tiết bằng tiếng Việt</label>
+              <input id="admin-q-explain" type="text" class="form-control-input" placeholder="Ví dụ: Cụm từ 'be keen on + V-ing' (say mê làm gì) -> chọn making." required />
+            </div>
+
+            <button type="submit" class="btn btn-primary" style="width:100%; padding:12px;">
+              💾 Lưu Câu Hỏi Vào Hệ Thống
+            </button>
+          </form>
+        </div>
+
+        <!-- Cột 2: Tạo Đề Kiểm Tra Mới & Danh sách câu hỏi đã thêm -->
+        <div style="display:flex; flex-direction:column; gap:20px;">
+          <div class="analytics-box">
+            <div class="analytics-box-title">
+              <span>🆕 Tạo Khung Đề Kiểm Tra Mới</span>
+            </div>
+            <form onsubmit="event.preventDefault(); handleAdminCreateExam();">
+              <div class="form-field">
+                <label>Tên đề kiểm tra mới</label>
+                <input id="admin-ex-title" type="text" class="form-control-input" placeholder="Ví dụ: Đề kiểm tra 15 phút (Đề cương trường em)" required />
+              </div>
+              <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
+                <div class="form-field">
+                  <label>Phân loại đề</label>
+                  <select id="admin-ex-cat" class="form-control-select">
+                    <option value="15m">Đề 15 Phút</option>
+                    <option value="midterm">Đề Giữa Kì 1</option>
+                    <option value="final">Đề Cuối Kì 1</option>
+                  </select>
+                </div>
+                <div class="form-field">
+                  <label>Thời gian làm bài (Phút)</label>
+                  <input id="admin-ex-duration" type="number" min="5" max="90" value="15" class="form-control-input" required />
+                </div>
+              </div>
+              <div class="form-field">
+                <label>Phạm vi kiến thức / Mô tả</label>
+                <input id="admin-ex-desc" type="text" class="form-control-input" placeholder="Ví dụ: Tổng hợp từ vựng & ngữ pháp trọng tâm trên lớp" required />
+              </div>
+              <button type="submit" class="btn btn-outline" style="width:100%;">
+                ➕ Khởi tạo Đề thi mới
+              </button>
+            </form>
+          </div>
+
+          <div class="analytics-box">
+            <div class="analytics-box-title">
+              <span>📋 Các Câu Hỏi Admin Đã Thêm (${customQuestions.length})</span>
+            </div>
+            ${
+              customQuestions.length === 0
+                ? `<p style="color:var(--text-muted); font-size:0.86rem;">Chưa có câu hỏi bổ sung nào. Bạn có thể thêm câu hỏi ở khung bên trái.</p>`
+                : `
+                  <div style="display:flex; flex-direction:column; gap:10px; max-height:320px; overflow-y:auto;">
+                    ${customQuestions
+                      .map(
+                        (cq) => `
+                        <div style="padding:10px 12px; border:1px solid var(--border); border-radius:8px; font-size:0.84rem; display:flex; justify-content:space-between; align-items:flex-start; gap:8px;">
+                          <div>
+                            <div style="font-weight:700;">${cq.question}</div>
+                            <div style="color:var(--success); font-size:0.78rem;">Đáp án: ${cq.options[cq.answer]}</div>
+                          </div>
+                          <button class="btn btn-outline btn-sm" style="color:var(--danger); padding:2px 8px;" onclick="handleAdminDeleteCustomQuestion('${cq.id}')">Xóa</button>
+                        </div>
+                      `
+                      )
+                      .join("")}
+                  </div>
+                `
+            }
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  window.handleAdminAddQuestion = async function () {
+    const targetRaw = document.getElementById("admin-q-target")?.value || "";
+    const section = document.getElementById("admin-q-section")?.value || "";
+    const qText = document.getElementById("admin-q-text")?.value.trim() || "";
+    const opt0 = document.getElementById("admin-q-opt0")?.value.trim() || "";
+    const opt1 = document.getElementById("admin-q-opt1")?.value.trim() || "";
+    const opt2 = document.getElementById("admin-q-opt2")?.value.trim() || "";
+    const opt3 = document.getElementById("admin-q-opt3")?.value.trim() || "";
+    const answerIdx = Number(document.getElementById("admin-q-correct")?.value || 0);
+    const explain = document.getElementById("admin-q-explain")?.value.trim() || "";
+
+    const [targetType, targetId] = targetRaw.split("|");
+    if (!targetType || !targetId || !qText) return;
+
+    const formatOpt = (prefix, val) => (val.startsWith(prefix) ? val : `${prefix}. ${val}`);
+
+    const newQuestion = {
+      id: "custom_q_" + Date.now(),
+      targetType,
+      targetId,
+      section,
+      question: qText,
+      options: [
+        formatOpt("A", opt0),
+        formatOpt("B", opt1),
+        formatOpt("C", opt2),
+        formatOpt("D", opt3)
+      ],
+      answer: answerIdx,
+      explanation: explain
+    };
+
+    state.systemStore.customQuestions = state.systemStore.customQuestions || [];
+    state.systemStore.customQuestions.unshift(newQuestion);
+    applyCustomContentToStudyData();
+
+    if (window.EY8_Supabase) {
+      await window.EY8_Supabase.saveSystemStore(state.systemStore);
+    }
+
+    renderApp();
+    alert("✅ Đã thêm câu hỏi mới vào hệ thống và đồng bộ lên đám mây!");
+  };
+
+  window.handleAdminDeleteCustomQuestion = async function (qId) {
+    state.systemStore.customQuestions = (state.systemStore.customQuestions || []).filter(
+      (q) => q.id !== qId
+    );
+    applyCustomContentToStudyData();
+    if (window.EY8_Supabase) {
+      await window.EY8_Supabase.saveSystemStore(state.systemStore);
+    }
+    renderApp();
+  };
+
+  window.handleAdminCreateExam = async function () {
+    const title = document.getElementById("admin-ex-title")?.value.trim() || "";
+    const cat = document.getElementById("admin-ex-cat")?.value || "15m";
+    const duration = Number(document.getElementById("admin-ex-duration")?.value || 15);
+    const desc = document.getElementById("admin-ex-desc")?.value.trim() || "";
+
+    if (!title) return;
+
+    const badgeMap = { "15m": "15 Phút", midterm: "Giữa Kì 1", final: "Cuối Kì 1" };
+    const newExam = {
+      id: "exam_custom_" + Date.now(),
+      title,
+      category: cat,
+      badge: badgeMap[cat] || "Đề riêng",
+      durationMinutes: duration,
+      scope: "Đề do Quản trị viên biên soạn",
+      description: desc,
+      questions: [
+        {
+          id: "custom_init_q_" + Date.now(),
+          section: "II. Vocabulary & Grammar",
+          question: "My brother is very fond _______ doing puzzles in his free time.",
+          options: ["A. in", "B. on", "C. of", "D. at"],
+          answer: 2,
+          explanation: "Cấu trúc cố định: 'be fond of + V-ing' (thích làm gì)."
+        }
+      ]
+    };
+
+    state.systemStore.customExams = state.systemStore.customExams || [];
+    state.systemStore.customExams.unshift(newExam);
+    applyCustomContentToStudyData();
+
+    if (window.EY8_Supabase) {
+      await window.EY8_Supabase.saveSystemStore(state.systemStore);
+    }
+
+    renderApp();
+    alert(`🎉 Đã tạo đề "${title}"! Bạn có thể thêm tiếp các câu hỏi vào đề này ở cột bên trái.`);
+  };
+
+  // -------------------------------------------------------------------------
+  // ADMIN TAB 4: QUẢN LÝ TÀI KHOẢN & CẤU HÌNH HỆ THỐNG (USERS & SYSTEM)
+  // -------------------------------------------------------------------------
+  function renderAdminUsersView() {
+    const cfg = window.EY8_Supabase ? window.EY8_Supabase.getConfig() : {};
+
+    return `
+      <div class="section-header">
+        <div>
+          <h2>👥 Quản Lý Tài Khoản Học Sinh & Hệ Thống</h2>
+          <p style="font-size:0.9rem; color:var(--text-muted);">Quản lý mật khẩu của em, tạo thêm tài khoản mới hoặc kiểm tra kết nối cơ sở dữ liệu Supabase.</p>
+        </div>
+      </div>
+
+      <div class="analytics-two-col">
+        <!-- Cột 1: Danh sách tài khoản -->
+        <div class="analytics-box">
+          <div class="analytics-box-title">
+            <span>📋 Danh Sách Tài Khoản Trên Hệ Thống (${state.allUsers.length})</span>
+            <button class="btn btn-outline btn-sm" onclick="refreshAdminUsersList()">🔄 Làm mới</button>
+          </div>
+
+          <div style="overflow-x:auto;">
+            <table class="custom-table">
+              <thead>
+                <tr>
+                  <th>Họ và Tên</th>
+                  <th>Username</th>
+                  <th>Vai trò</th>
+                  <th>Mật khẩu / PIN</th>
+                  <th>Thao tác quản trị</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${state.allUsers
+                  .map(
+                    (u) => `
+                    <tr>
+                      <td><strong>${u.fullName}</strong></td>
+                      <td><code>${u.username}</code></td>
+                      <td>
+                        <span class="user-role-tag ${u.role === "admin" ? "admin" : "student"}">
+                          ${u.role === "admin" ? "👑 Admin" : "🎓 Học sinh"}
+                        </span>
+                      </td>
+                      <td><code>${u.pinCode || "****"}</code></td>
+                      <td>
+                        <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                          <button class="btn btn-outline btn-sm" style="padding:3px 8px; font-size:0.76rem;" onclick="handleAdminChangeUserPassword('${u.id}', '${u.username}', '${u.fullName}')">
+                            🔑 Đổi MK
+                          </button>
+                          ${
+                            u.role === "student"
+                              ? `
+                              <button class="btn btn-outline btn-sm" style="padding:3px 8px; font-size:0.76rem; color:#D97706;" onclick="handleAdminResetStudentData('${u.username}', '${u.id}')">
+                                🧹 Reset điểm
+                              </button>
+                            `
+                              : ""
+                          }
+                          ${
+                            u.username !== "admin" && u.username !== "em_lop8"
+                              ? `
+                              <button class="btn btn-outline btn-sm" style="padding:3px 8px; font-size:0.76rem; color:var(--danger);" onclick="handleAdminDeleteUser('${u.username}')">
+                                🗑️ Xóa
+                              </button>
+                            `
+                              : ""
+                          }
+                        </div>
+                      </td>
+                    </tr>
+                  `
+                  )
+                  .join("")}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Cột 2: Tạo tài khoản mới & Cấu hình Supabase -->
+        <div style="display:flex; flex-direction:column; gap:20px;">
+          <div class="analytics-box">
+            <div class="analytics-box-title">
+              <span>➕ Tạo Tài Khoản Mới (Quyền Admin)</span>
+            </div>
+            <form onsubmit="event.preventDefault(); handleAdminCreateUserAccount();">
+              <div class="form-field">
+                <label>Họ và Tên</label>
+                <input id="adm-new-fullname" type="text" class="form-control-input" placeholder="Ví dụ: Em Minh Khôi" required />
+              </div>
+              <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
+                <div class="form-field">
+                  <label>Tên đăng nhập</label>
+                  <input id="adm-new-username" type="text" class="form-control-input" placeholder="Ví dụ: minhkhoi8" required />
+                </div>
+                <div class="form-field">
+                  <label>Mật khẩu / Mã PIN</label>
+                  <input id="adm-new-password" type="text" class="form-control-input" placeholder="Ví dụ: 123456" required />
+                </div>
+              </div>
+              <div class="form-field">
+                <label>Phân quyền tài khoản (Chỉ Admin mới được cấp quyền này)</label>
+                <select id="adm-new-role" class="form-control-select">
+                  <option value="student" selected>🎓 Học sinh (Chỉ vào bàn học & làm đề)</option>
+                  <option value="admin">👑 Quản trị viên / Phụ huynh (Toàn quyền quản lý)</option>
+                </select>
+              </div>
+              <button type="submit" class="btn btn-primary" style="width:100%;">
+                ✨ Tạo Tài Khoản
+              </button>
+            </form>
+          </div>
+
+          <div class="analytics-box">
+            <div class="analytics-box-title">
+              <span>☁️ Kết Nối Cơ Sở Dữ Liệu Đám Mây Supabase</span>
+              <span style="font-size:0.78rem; padding:3px 10px; border-radius:99px; background:${cfg.isConnected ? "#D1FAE5" : "#FEE2E2"}; color:${cfg.isConnected ? "#065F46" : "#991B1B"}; font-weight:700;">
+                ${cfg.isConnected ? "🟢 Đang hoạt động" : "🔴 Chưa kết nối"}
+              </span>
+            </div>
+            <p style="font-size:0.84rem; color:var(--text-muted); margin-bottom:12px;">
+              Project URL: <code>${cfg.url}</code>
+            </p>
+            <button class="btn btn-outline btn-sm" onclick="openSupabaseSettingsModal()">
+              ⚙️ Kiểm tra & Cấu hình nâng cao Supabase Key
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  window.handleAdminCreateUserAccount = async function () {
+    const fullName = document.getElementById("adm-new-fullname")?.value.trim() || "";
+    const username = document.getElementById("adm-new-username")?.value.trim() || "";
+    const password = document.getElementById("adm-new-password")?.value.trim() || "";
+    const role = document.getElementById("adm-new-role")?.value || "student";
+
+    const res = await window.EY8_Supabase.register({
+      fullName,
+      username,
+      password,
+      role,
+      createdByAdmin: true
+    });
+
+    if (res.success) {
+      await refreshAdminUsersList();
+      alert(`✅ Đã tạo tài khoản "${username}" (${role === "admin" ? "Admin" : "Học sinh"}) thành công!`);
+    } else {
+      alert("⚠️ " + (res.message || "Không thể tạo tài khoản!"));
+    }
+  };
+
+  window.handleAdminChangeUserPassword = async function (userId, username, fullName) {
+    const newPass = prompt(`Nhập mật khẩu / mã PIN mới cho tài khoản "${fullName}" (${username}):`);
+    if (!newPass || !newPass.trim()) return;
+    if (newPass.trim().length < 4) {
+      alert("Mật khẩu phải có ít nhất 4 ký tự!");
+      return;
+    }
+    await window.EY8_Supabase.updateUserPasswordOrInfo(userId, username, {
+      pinCode: newPass.trim()
+    });
+    await refreshAdminUsersList();
+    alert(`✅ Đã cập nhật mật khẩu mới cho "${username}" thành: ${newPass.trim()}`);
+  };
+
+  window.handleAdminResetStudentData = async function (username, userId) {
+    if (
+      !confirm(
+        `Bạn có chắc chắn muốn XÓA SẠCH lịch sử điểm và đặt lại tiến độ học của tài khoản "${username}" về 0 không?`
+      )
+    ) {
+      return;
+    }
+    await window.EY8_Supabase.resetStudentProgress(username, userId);
+    if (state.adminSelectedStudent === username) {
+      await loadAdminInspectedStudent(username);
+    }
+    alert(`✅ Đã đặt lại toàn bộ tiến độ học tập của "${username}" về ban đầu.`);
+  };
+
+  window.handleAdminDeleteUser = async function (username) {
+    if (!confirm(`Bạn có chắc muốn xóa tài khoản "${username}" không?`)) return;
+    const res = await window.EY8_Supabase.deleteUserAccount(username);
+    if (!res.success) {
+      alert(res.message);
+      return;
+    }
+    await refreshAdminUsersList();
+  };
+
+  // =========================================================================
+  // CÁC CỬA SỔ MODAL POPUP (SOI CHI TIẾT BÀI LÀM & CẤU HÌNH SUPABASE ADMIN)
+  // =========================================================================
   window.closeModal = function () {
     const modalRoot = document.getElementById("modal-root");
     if (modalRoot) modalRoot.innerHTML = "";
   };
 
-  // 1. Modal xem lại chi tiết bài làm
-  window.openAttemptDetailModal = function (historyIndex) {
-    const item = state.examHistory[historyIndex];
+  window.openAttemptDetailModal = function (historyIndex, isAdminInspect = false) {
+    const targetList = isAdminInspect ? state.inspectedStudentRecord.examHistory : state.examHistory;
+    const item = targetList[historyIndex];
     if (!item) return;
 
     const modalRoot = document.getElementById("modal-root");
@@ -1633,7 +2990,9 @@
           <button class="modal-close-btn" onclick="closeModal()">✕</button>
 
           <div style="border-bottom:1px solid var(--border); padding-bottom:14px; margin-bottom:18px;">
-            <div style="font-size:0.82rem; color:var(--text-muted); text-transform:uppercase; font-weight:700;">Chi tiết bài làm ngày ${item.date}</div>
+            <div style="font-size:0.82rem; color:var(--text-muted); text-transform:uppercase; font-weight:700;">
+              Chi tiết bài làm • Ngày ${item.date}
+            </div>
             <h3 style="font-size:1.3rem; font-weight:800; color:var(--text-main); margin:4px 0;">${item.examTitle}</h3>
             <div style="display:flex; gap:12px; align-items:center; font-size:0.9rem; margin-top:8px;">
               <span style="background:#D1FAE5; color:#065F46; padding:3px 10px; border-radius:99px; font-weight:800;">Điểm số: ${item.score10} / 10 đ</span>
@@ -1674,12 +3033,12 @@
                                   optBg = "#D1FAE5";
                                   optBorder = "#10B981";
                                   optColor = "#065F46";
-                                  badge = " (Đáp án đúng)";
+                                  badge = " ✔ (Đáp án đúng)";
                                 } else if (userChoice === oIdx && !isCorrect) {
                                   optBg = "#FEE2E2";
                                   optBorder = "#EF4444";
                                   optColor = "#991B1B";
-                                  badge = " (Em đã chọn)";
+                                  badge = " ✘ (Đã chọn sai)";
                                 }
 
                                 return `
@@ -1711,232 +3070,38 @@
     `;
   };
 
-  // ==========================================
-  // MODAL ĐĂNG NHẬP / ĐĂNG KÝ (PHÂN QUYỀN HỌC SINH & ADMIN)
-  // ==========================================
-  window.openAuthModal = function (defaultTab = "login") {
-    const modalRoot = document.getElementById("modal-root");
-    if (!modalRoot) return;
-
-    const currentUser = window.EY8_Supabase ? window.EY8_Supabase.getCurrentUser() : null;
-
-    modalRoot.innerHTML = `
-      <div class="modal-overlay" onclick="closeModal()">
-        <div class="modal-content" style="max-width: 480px;" onclick="event.stopPropagation()">
-          <button class="modal-close-btn" onclick="closeModal()">✕</button>
-
-          <div class="auth-tabs">
-            <button id="auth-tab-btn-login" class="auth-tab-btn ${defaultTab === "login" ? "active" : ""}" onclick="switchAuthTab('login')">
-              🔑 Đăng Nhập
-            </button>
-            <button id="auth-tab-btn-register" class="auth-tab-btn ${defaultTab === "register" ? "active" : ""}" onclick="switchAuthTab('register')">
-              ✨ Đăng Ký Tài Khoản
-            </button>
-          </div>
-
-          <!-- Tab Đăng Nhập -->
-          <div id="auth-pane-login" style="display: ${defaultTab === "login" ? "block" : "none"};">
-            <div style="display:flex; flex-direction:column; gap:14px;">
-              <div>
-                <label style="font-size:0.85rem; font-weight:700; display:block; margin-bottom:4px;">Tên đăng nhập (Username)</label>
-                <input id="login-username" type="text" style="width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:var(--radius-sm); font-size:0.9rem;" placeholder="Nhập tên đăng nhập..." />
-              </div>
-
-              <div>
-                <label style="font-size:0.85rem; font-weight:700; display:block; margin-bottom:4px;">Mật khẩu / Mã PIN</label>
-                <input id="login-password" type="password" style="width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:var(--radius-sm); font-size:0.9rem;" placeholder="Nhập mật khẩu..." />
-              </div>
-
-              <div id="login-error-msg" style="display:none; padding:10px 12px; border-radius:var(--radius-sm); background:#FEF2F2; color:#991B1B; font-size:0.85rem;"></div>
-
-              <button class="btn btn-primary" style="width:100%; padding:12px; font-size:0.95rem; font-weight:700;" onclick="handleLoginSubmit()">
-                Đăng Nhập Ngay
-              </button>
-            </div>
-
-            <!-- Nút đăng nhập nhanh tiện lợi -->
-            <div class="quick-login-box">
-              <div class="quick-login-title">⚡ Chọn nhanh tài khoản mẫu:</div>
-              <div class="quick-login-btns">
-                <button class="btn btn-outline btn-sm" onclick="quickFillLogin('em_lop8', '1234')">
-                  🎓 Em Lớp 8
-                </button>
-                <button class="btn btn-outline btn-sm" onclick="quickFillLogin('admin', 'admin123')">
-                  👑 Quản Trị Viên (Admin)
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <!-- Tab Đăng Ký -->
-          <div id="auth-pane-register" style="display: ${defaultTab === "register" ? "block" : "none"};">
-            <div style="display:flex; flex-direction:column; gap:14px;">
-              <div>
-                <label style="font-size:0.85rem; font-weight:700; display:block; margin-bottom:4px;">Họ và Tên</label>
-                <input id="reg-fullname" type="text" style="width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:var(--radius-sm); font-size:0.9rem;" placeholder="Ví dụ: Minh Trang" />
-              </div>
-
-              <div>
-                <label style="font-size:0.85rem; font-weight:700; display:block; margin-bottom:4px;">Tên đăng nhập (viết liền không dấu)</label>
-                <input id="reg-username" type="text" style="width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:var(--radius-sm); font-size:0.9rem;" placeholder="Ví dụ: minhtrang" />
-              </div>
-
-              <div>
-                <label style="font-size:0.85rem; font-weight:700; display:block; margin-bottom:4px;">Mật khẩu</label>
-                <input id="reg-password" type="password" style="width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:var(--radius-sm); font-size:0.9rem;" placeholder="Tạo mật khẩu dễ nhớ..." />
-              </div>
-
-              <div>
-                <label style="font-size:0.85rem; font-weight:700; display:block; margin-bottom:4px;">Vai trò tài khoản</label>
-                <select id="reg-role" style="width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:var(--radius-sm); font-size:0.9rem;">
-                  <option value="student" selected>🎓 Học sinh (Lớp 8)</option>
-                  <option value="admin">👑 Phụ huynh / Quản trị viên (Admin)</option>
-                </select>
-              </div>
-
-              <div id="reg-error-msg" style="display:none; padding:10px 12px; border-radius:var(--radius-sm); background:#FEF2F2; color:#991B1B; font-size:0.85rem;"></div>
-
-              <button class="btn btn-primary" style="width:100%; padding:12px; font-size:0.95rem; font-weight:700;" onclick="handleRegisterSubmit()">
-                Tạo Tài Khoản & Vào Học
-              </button>
-            </div>
-          </div>
-
-          ${
-            currentUser
-              ? `
-                <div style="margin-top:18px; padding-top:14px; border-top:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;">
-                  <span style="font-size:0.85rem; color:var(--text-muted);">Đang đăng nhập: <strong>${currentUser.fullName}</strong></span>
-                  <button class="btn btn-outline btn-sm" style="color:var(--danger); border-color:#FECACA;" onclick="handleLogout()">Đăng xuất</button>
-                </div>
-              `
-              : ""
-          }
-        </div>
-      </div>
-    `;
-  };
-
-  window.switchAuthTab = function (tab) {
-    const pLogin = document.getElementById("auth-pane-login");
-    const pReg = document.getElementById("auth-pane-register");
-    const bLogin = document.getElementById("auth-tab-btn-login");
-    const bReg = document.getElementById("auth-tab-btn-register");
-    if (pLogin && pReg) {
-      pLogin.style.display = tab === "login" ? "block" : "none";
-      pReg.style.display = tab === "register" ? "block" : "none";
-    }
-    if (bLogin && bReg) {
-      bLogin.classList.toggle("active", tab === "login");
-      bReg.classList.toggle("active", tab === "register");
-    }
-  };
-
-  window.quickFillLogin = function (u, p) {
-    const uEl = document.getElementById("login-username");
-    const pEl = document.getElementById("login-password");
-    if (uEl) uEl.value = u;
-    if (pEl) pEl.value = p;
-    handleLoginSubmit();
-  };
-
-  window.handleLoginSubmit = async function () {
-    const uEl = document.getElementById("login-username");
-    const pEl = document.getElementById("login-password");
-    const errEl = document.getElementById("login-error-msg");
-    if (!uEl || !pEl) return;
-
-    if (window.EY8_Supabase) {
-      const res = await window.EY8_Supabase.login(uEl.value, pEl.value);
-      if (res.success) {
-        closeModal();
-        renderApp();
-        syncCloudData(true);
-      } else {
-        if (errEl) {
-          errEl.style.display = "block";
-          errEl.textContent = res.message || "Tên đăng nhập hoặc mật khẩu không chính xác!";
-        }
-      }
-    }
-  };
-
-  window.handleRegisterSubmit = async function () {
-    const nEl = document.getElementById("reg-fullname");
-    const uEl = document.getElementById("reg-username");
-    const pEl = document.getElementById("reg-password");
-    const rEl = document.getElementById("reg-role");
-    const errEl = document.getElementById("reg-error-msg");
-
-    if (window.EY8_Supabase) {
-      const res = await window.EY8_Supabase.register({
-        fullName: nEl ? nEl.value : "",
-        username: uEl ? uEl.value : "",
-        password: pEl ? pEl.value : "",
-        role: rEl ? rEl.value : "student"
-      });
-
-      if (res.success) {
-        closeModal();
-        renderApp();
-        alert(`🎉 Tạo tài khoản thành công! Chào mừng ${res.user.fullName}.`);
-        syncCloudData(true);
-      } else {
-        if (errEl) {
-          errEl.style.display = "block";
-          errEl.textContent = res.message || "Đăng ký không thành công!";
-        }
-      }
-    }
-  };
-
-  window.handleLogout = function () {
-    if (window.EY8_Supabase) {
-      window.EY8_Supabase.logout();
-      closeModal();
-      renderApp();
-    }
-  };
-
-  // 2. Modal Cài đặt Supabase Cloud (CHỈ DÀNH CHO ADMIN)
   window.openSupabaseSettingsModal = function () {
-    if (window.EY8_Supabase && !window.EY8_Supabase.isAdmin()) {
-      alert("Tính năng cài đặt kỹ thuật này chỉ dành riêng cho tài khoản Quản trị viên (Admin)!");
+    if (!window.EY8_Supabase || !window.EY8_Supabase.isAdmin()) {
+      alert("Chỉ tài khoản Quản trị viên (Admin) mới có quyền truy cập cấu hình hệ thống!");
       return;
     }
 
     const modalRoot = document.getElementById("modal-root");
     if (!modalRoot) return;
-
-    const cfg = window.EY8_Supabase ? window.EY8_Supabase.getConfig() : {};
-    const currentUser = window.EY8_Supabase ? window.EY8_Supabase.getCurrentUser() : {};
+    const cfg = window.EY8_Supabase.getConfig();
 
     modalRoot.innerHTML = `
       <div class="modal-overlay" onclick="closeModal()">
         <div class="modal-content" onclick="event.stopPropagation()">
           <button class="modal-close-btn" onclick="closeModal()">✕</button>
-
-          <h3 style="font-size:1.3rem; font-weight:800; margin-bottom:6px;">⚙️ Cấu Hình Supabase Cloud Database (Admin)</h3>
+          <h3 style="font-size:1.3rem; font-weight:800; margin-bottom:6px;">⚙️ Cấu Hình Kết Nối Supabase Cloud (Admin)</h3>
           <p style="font-size:0.88rem; color:var(--text-muted); margin-bottom:18px;">
-            Khu vực quản lý kết nối cơ sở dữ liệu Supabase dành cho Quản trị viên.
+            Thông tin kết nối cơ sở dữ liệu đám mây đã được nhúng sẵn. Bạn có thể kiểm tra trạng thái kết nối tại đây.
           </p>
 
           <div style="display:flex; flex-direction:column; gap:14px;">
             <div>
               <label style="font-size:0.85rem; font-weight:700; display:block; margin-bottom:4px;">Supabase Project URL</label>
-              <input id="input-supabase-url" type="text" style="width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:var(--radius-sm); font-family:monospace; font-size:0.85rem;" value="${cfg.url || "https://iiltwryccctzjbfddjcw.supabase.co"}" placeholder="https://xxx.supabase.co" />
+              <input id="input-supabase-url" type="text" class="form-control-input" style="font-family:monospace;" value="${cfg.url || ""}" />
             </div>
-
             <div>
-              <label style="font-size:0.85rem; font-weight:700; display:block; margin-bottom:4px;">Supabase Anon Public API Key</label>
-              <input id="input-supabase-key" type="password" style="width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:var(--radius-sm); font-family:monospace; font-size:0.85rem;" value="${cfg.anonKey || ""}" placeholder="Dán mã anon public key tại đây..." />
+              <label style="font-size:0.85rem; font-weight:700; display:block; margin-bottom:4px;">Supabase Anon Public Key</label>
+              <input id="input-supabase-key" type="password" class="form-control-input" style="font-family:monospace;" value="${cfg.anonKey || ""}" />
             </div>
-
-            <div id="supabase-modal-msg" style="display:none; padding:10px 14px; border-radius:var(--radius-sm); font-size:0.85rem;"></div>
-
+            <div id="supabase-modal-msg" style="display:none; padding:10px 14px; border-radius:8px; font-size:0.85rem;"></div>
             <div style="display:flex; gap:10px; margin-top:10px;">
               <button class="btn btn-primary" style="flex:1" onclick="saveAndTestSupabaseConfig()">
-                💾 Lưu & Kiểm tra Kết nối
+                💾 Kiểm tra & Lưu kết nối
               </button>
               <button class="btn btn-outline" onclick="closeModal()">Đóng</button>
             </div>
@@ -1949,46 +3114,24 @@
   window.saveAndTestSupabaseConfig = async function () {
     const urlEl = document.getElementById("input-supabase-url");
     const keyEl = document.getElementById("input-supabase-key");
-    const nameEl = document.getElementById("input-student-name");
     const msgEl = document.getElementById("supabase-modal-msg");
-
-    if (!urlEl || !keyEl) return;
-
-    const url = urlEl.value.trim();
-    const key = keyEl.value.trim();
-    const studentName = nameEl ? nameEl.value.trim() : "Học Sinh Lớp 8";
-
-    if (!key) {
-      msgEl.style.display = "block";
-      msgEl.style.background = "#FEF2F2";
-      msgEl.style.color = "#991B1B";
-      msgEl.textContent = "⚠️ Vui lòng dán Anon Key của Supabase để tiếp tục.";
-      return;
-    }
+    if (!urlEl || !keyEl || !msgEl) return;
 
     msgEl.style.display = "block";
     msgEl.style.background = "#EEF2FF";
     msgEl.style.color = "#3730A3";
-    msgEl.textContent = "⏳ Đang kết nối tới Supabase...";
+    msgEl.textContent = "⏳ Đang kiểm tra kết nối tới Supabase...";
 
-    if (window.EY8_Supabase) {
-      window.EY8_Supabase.saveConfig(url, key);
-      window.EY8_Supabase.setCurrentStudent({ fullName: studentName });
-
-      const res = await window.EY8_Supabase.testConnection();
-      if (res.ok) {
-        msgEl.style.background = "#ECFDF5";
-        msgEl.style.color = "#065F46";
-        msgEl.textContent = "🎉 Kết nối thành công tới Supabase Database!";
-        setTimeout(() => {
-          closeModal();
-          renderApp();
-        }, 1200);
-      } else {
-        msgEl.style.background = "#FEF2F2";
-        msgEl.style.color = "#991B1B";
-        msgEl.textContent = `❌ Lỗi kết nối: ${res.message}. Hãy kiểm tra xem bạn đã chạy file schema.sql trên Supabase chưa nhé!`;
-      }
+    window.EY8_Supabase.saveConfig(urlEl.value.trim(), keyEl.value.trim());
+    const res = await window.EY8_Supabase.testConnection();
+    if (res.ok) {
+      msgEl.style.background = "#ECFDF5";
+      msgEl.style.color = "#065F46";
+      msgEl.textContent = "🎉 Kết nối tới Supabase Cloud hoàn toàn ổn định!";
+    } else {
+      msgEl.style.background = "#FEF2F2";
+      msgEl.style.color = "#991B1B";
+      msgEl.textContent = `❌ Lỗi: ${res.message}`;
     }
   };
 
@@ -2008,109 +3151,72 @@
     return null;
   }
 
-  async function syncCloudData(silent = false) {
+  async function loadSystemStoreAndApply() {
     if (!window.EY8_Supabase) return;
-    const cfg = window.EY8_Supabase.getConfig();
-    if (!cfg.isConnected) return;
+    const store = await window.EY8_Supabase.loadSystemStore();
+    if (store) {
+      state.systemStore = store;
+      applyCustomContentToStudyData();
+    }
+  }
+
+  async function syncCloudData(silent = false) {
+    if (!window.EY8_Supabase || !window.EY8_Supabase.isLoggedIn()) return;
+    await loadSystemStoreAndApply();
+
+    const currentUser = window.EY8_Supabase.getCurrentUser();
+    if (!currentUser || currentUser.role === "admin") return;
 
     try {
-      const cloudData = await window.EY8_Supabase.fetchCloudStudentData();
-      if (!cloudData) return;
+      const record = await window.EY8_Supabase.fetchStudentFullRecord(currentUser.username, currentUser.id);
+      if (!record) return;
 
       let hasChanges = false;
-
-      // 1. Đồng bộ từ vựng đã thuộc
-      if (cloudData.progress && cloudData.progress.length > 0) {
-        cloudData.progress.forEach((p) => {
-          if (p.status === "mastered" && !state.learnedVocab[p.vocabulary_id]) {
-            state.learnedVocab[p.vocabulary_id] = true;
-            hasChanges = true;
-          }
-        });
-        if (hasChanges) saveJSON(STORAGE_KEYS.LEARNED_VOCAB, state.learnedVocab);
-      }
-
-      // 2. Đồng bộ các lượt thi và chi tiết từng câu từ máy em về máy bạn
-      if (cloudData.attempts && cloudData.attempts.length > 0) {
-        const existingAttemptIds = new Set(
-          state.examHistory.map((h) => h.id || `${h.examId}_${h.date}`)
-        );
-
-        cloudData.attempts.forEach((att) => {
-          const attId = att.id;
-          if (!existingAttemptIds.has(attId)) {
-            const reconstructedQuestions = [];
-            const answersRecord = {};
-
-            if (att.attempt_answers && att.attempt_answers.length > 0) {
-              att.attempt_answers.forEach((ans) => {
-                answersRecord[ans.question_id] = ans.selected_option_index;
-                const qObj = findQuestionById(ans.question_id);
-                if (qObj) {
-                  reconstructedQuestions.push(qObj);
-                }
-              });
-            }
-
-            const examTitle =
-              att.exercises && att.exercises.title
-                ? att.exercises.title
-                : `Bài kiểm tra ${att.exercise_id}`;
-            const badge =
-              att.exercises && att.exercises.badge ? att.exercises.badge : "Đã làm";
-
-            state.examHistory.unshift({
-              id: att.id,
-              examId: att.exercise_id,
-              examTitle: examTitle,
-              category: (att.exercises && att.exercises.category) || "exam",
-              badge: badge,
-              correct: att.raw_score,
-              total: att.total_questions,
-              score10: Number(Number(att.score).toFixed(2)),
-              timeSpent: formatTime(att.time_spent_seconds || 0),
-              timeSpentSeconds: att.time_spent_seconds || 0,
-              date: new Date(att.completed_at).toLocaleString("vi-VN"),
-              answers: answersRecord,
-              questions: reconstructedQuestions
-            });
-            hasChanges = true;
-          }
-        });
-
-        if (hasChanges) {
-          saveJSON(STORAGE_KEYS.EXAM_HISTORY, state.examHistory);
+      if (record.snapshot) {
+        if (
+          record.snapshot.learnedVocab &&
+          Object.keys(record.snapshot.learnedVocab).length > Object.keys(state.learnedVocab).length
+        ) {
+          state.learnedVocab = { ...state.learnedVocab, ...record.snapshot.learnedVocab };
+          hasChanges = true;
+        }
+        if (record.snapshot.unitScores) {
+          state.unitScores = { ...state.unitScores, ...record.snapshot.unitScores };
+        }
+        if (
+          Array.isArray(record.snapshot.examHistory) &&
+          record.snapshot.examHistory.length > state.examHistory.length
+        ) {
+          state.examHistory = record.snapshot.examHistory;
+          hasChanges = true;
+        }
+        if (record.snapshot.mistakes) {
+          state.mistakes = { ...state.mistakes, ...record.snapshot.mistakes };
         }
       }
 
       if (hasChanges) {
+        persistActiveStudentState();
         renderApp();
       }
-
-      if (!silent) {
-        alert("✅ Đã đồng bộ dữ liệu bài làm mới nhất từ đám mây Supabase!");
-      }
-    } catch (err) {
-      console.warn("syncCloudData warning:", err);
+    } catch (e) {
+      console.warn("syncCloudData warning:", e);
     }
   }
 
-  window.syncCloudNow = async function () {
-    if (!window.EY8_Supabase) return;
-    const cfg = window.EY8_Supabase.getConfig();
-    if (!cfg.isConnected) {
-      openSupabaseSettingsModal();
-      return;
-    }
-    await syncCloudData(false);
-  };
-
   // Khởi tạo khi trang tải xong
-  window.addEventListener("DOMContentLoaded", () => {
+  window.addEventListener("DOMContentLoaded", async () => {
+    loadActiveUserLocalProgress();
     renderApp();
-    // Tự động kiểm tra và đồng bộ từ đám mây Supabase ngầm
-    setTimeout(() => {
-      syncCloudData(true);
-    }, 1000);
+    await loadSystemStoreAndApply();
+    if (window.EY8_Supabase && window.EY8_Supabase.isLoggedIn()) {
+      if (window.EY8_Supabase.isAdmin()) {
+        await refreshAdminUsersList();
+        await loadAdminInspectedStudent(state.adminSelectedStudent);
+      } else {
+        await syncCloudData(true);
+      }
+      renderApp();
+    }
   });
 })();
