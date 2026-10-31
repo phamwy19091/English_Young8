@@ -487,28 +487,35 @@ body {
 /* Unit Study View */
 .unit-selector-bar {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
-  overflow-x: auto;
-  padding-bottom: 8px;
-  margin-bottom: 20px;
+  margin-bottom: 18px;
 }
 
 .unit-pill {
-  padding: 8px 14px;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border);
+  padding: 8px 13px;
+  border-radius: 10px;
+  border: 1.5px solid var(--border);
   background: white;
-  font-weight: 600;
-  font-size: 0.86rem;
+  font-weight: 700;
+  font-size: 0.83rem;
+  color: var(--text-main);
   cursor: pointer;
   white-space: nowrap;
   transition: all 0.2s;
+}
+
+.unit-pill:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+  background: var(--primary-light);
 }
 
 .unit-pill.active {
   background: var(--primary);
   color: white;
   border-color: var(--primary);
+  box-shadow: 0 3px 10px rgba(79, 70, 229, 0.22);
 }
 
 .sub-tabs {

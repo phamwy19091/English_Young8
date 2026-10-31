@@ -553,133 +553,10 @@
     return true;
   }
 
-  window.goHistoryBack = function () {
-    window.history.back();
-  };
-
-  window.goHistoryForward = function () {
-    window.history.forward();
-  };
-
-  function renderSubpageBreadcrumbBar() {
-    const canGoBack = routerState.historyCursor > 0 || window.history.length > 1;
-    const canGoForward =
-      routerState.historyCursor >= 0 && routerState.historyCursor < routerState.historyStack.length - 1;
-
-    const isAdmin = window.EY8_Supabase && window.EY8_Supabase.isAdmin();
-    let trailHtml = "";
-
-    if (isAdmin && !state.adminPreviewStudentMode) {
-      const adminTitles = {
-        "admin-monitor": "📊 Giám Sát Học Sinh",
-        "admin-assignments": "🎯 Giao Bài Tập",
-        "admin-content": "🗂️ Quản Lý Đề & Câu Hỏi",
-        "admin-users": "👥 Tài Khoản & Hệ Thống"
-      };
-      trailHtml = `
-        <button class="breadcrumb-link" onclick="switchAdminTab('admin-monitor')">👑 Cổng Quản Trị Admin</button>
-        <span class="breadcrumb-sep">›</span>
-        <span class="breadcrumb-current">${adminTitles[state.adminTab] || "Quản trị"}</span>
-      `;
-    } else {
-      if (state.currentTab === "dashboard") {
-        trailHtml = `<span class="breadcrumb-current">🏠 Bàn Học Của Em (Trang chủ)</span>`;
-      } else if (state.currentTab === "unit-study") {
-        const unit = (window.STUDY_DATA.units || []).find((u) => u.id === state.selectedUnitId);
-        const subName =
-          state.unitSubTab === "grammar"
-            ? "📐 2. Ngữ âm & Ngữ pháp"
-            : state.unitSubTab === "practice"
-            ? "✍️ 3. Bài tập thực hành"
-            : "🗂️ 1. Từ vựng & Flashcard";
-        trailHtml = `
-          <button class="breadcrumb-link" onclick="switchMainTab('dashboard')">🏠 Bàn Học Của Em</button>
-          <span class="breadcrumb-sep">›</span>
-          <button class="breadcrumb-link" onclick="openUnitWithSubTab('${state.selectedUnitId}', 'vocab')">
-            📚 Unit ${unit ? unit.number + ": " + unit.title : ""}
-          </button>
-          <span class="breadcrumb-sep">›</span>
-          <span class="breadcrumb-current">${subName}</span>
-        `;
-      } else if (state.currentTab === "exams") {
-        if (state.activeExam) {
-          trailHtml = `
-            <button class="breadcrumb-link" onclick="switchMainTab('dashboard')">🏠 Bàn Học Của Em</button>
-            <span class="breadcrumb-sep">›</span>
-            <button class="breadcrumb-link" onclick="exitExamRoom()">📝 Phòng Luyện Đề Thi</button>
-            <span class="breadcrumb-sep">›</span>
-            <span class="breadcrumb-current">⏱️ ${state.activeExam.title}</span>
-          `;
-        } else {
-          trailHtml = `
-            <button class="breadcrumb-link" onclick="switchMainTab('dashboard')">🏠 Bàn Học Của Em</button>
-            <span class="breadcrumb-sep">›</span>
-            <span class="breadcrumb-current">📝 Phòng Luyện Đề Thi</span>
-          `;
-        }
-      } else if (state.currentTab === "mistakes") {
-        trailHtml = `
-          <button class="breadcrumb-link" onclick="switchMainTab('dashboard')">🏠 Bàn Học Của Em</button>
-          <span class="breadcrumb-sep">›</span>
-          ${
-            state.mistakePracticeActive
-              ? `<button class="breadcrumb-link" onclick="exitMistakePractice()">📓 Sổ Tay Câu Sai</button>
-                 <span class="breadcrumb-sep">›</span>
-                 <span class="breadcrumb-current">🔥 Làm lại câu sai</span>`
-              : `<span class="breadcrumb-current">📓 Sổ Tay Câu Sai</span>`
-          }
-        `;
-      } else if (state.currentTab === "student-progress") {
-        trailHtml = `
-          <button class="breadcrumb-link" onclick="switchMainTab('dashboard')">🏠 Bàn Học Của Em</button>
-          <span class="breadcrumb-sep">›</span>
-          <span class="breadcrumb-current">🏆 Thành Tích Của Em</span>
-        `;
-      }
-    }
-
-    // Ẩn thanh breadcrumb ở Trang chủ nếu người dùng chưa chuyển qua trang nào khác
-    if (
-      !(isAdmin && !state.adminPreviewStudentMode) &&
-      state.currentTab === "dashboard" &&
-      routerState.historyStack.length <= 1
-    ) {
-      return "";
-    }
-
-    return `
-      <div class="subpage-breadcrumb-bar">
-        <div class="nav-history-group">
-          <button
-            class="nav-history-btn"
-            onclick="goHistoryBack()"
-            ${!canGoBack ? "disabled" : ""}
-            title="Quay lại trang trước (Nút Back trình duyệt hoặc Alt + ⬅)"
-          >
-            ⬅ Quay lại
-          </button>
-          <button
-            class="nav-history-btn"
-            onclick="goHistoryForward()"
-            ${!canGoForward ? "disabled" : ""}
-            title="Tiến tới trang tiếp theo (Nút Forward trình duyệt hoặc Alt + ➡)"
-          >
-            Tiếp ➡
-          </button>
-        </div>
-
-        <div class="breadcrumb-trail">
-          ${trailHtml}
-        </div>
-      </div>
-    `;
-  }
-
   // =========================================================================
   // RENDER TOÀN TRANG (PHÂN LUỒNG: AUTH SCREEN | ADMIN PORTAL | STUDENT PORTAL)
   // =========================================================================
   function renderApp() {
-    const topBar = document.getElementById("top-subject-bar");
     const mainHeader = document.getElementById("main-header");
     const previewBarRoot = document.getElementById("admin-preview-bar-root");
     const navTabsEl = document.getElementById("main-nav-tabs");
@@ -688,27 +565,24 @@
 
     if (!root) return;
 
-    // Đồng bộ URL Hash & Lịch sử trình duyệt (hỗ trợ nút Back / Forward & F5)
+    // Đồng bộ URL Hash & Lịch sử trình duyệt (hỗ trợ nút Back / Forward của trình duyệt & F5)
     syncUrlWithState();
 
     const isLoggedIn = window.EY8_Supabase && window.EY8_Supabase.isLoggedIn();
 
     // 1. NẾU CHƯA ĐĂNG NHẬP -> HIỂN THỊ TRANG ĐĂNG NHẬP / ĐĂNG KÝ TOÀN MÀN HÌNH
     if (!isLoggedIn) {
-      if (topBar) topBar.style.display = "none";
       if (mainHeader) mainHeader.style.display = "none";
       if (previewBarRoot) previewBarRoot.innerHTML = "";
       root.innerHTML = renderFullAuthScreen();
       return;
     }
 
-    if (topBar) topBar.style.display = "block";
     if (mainHeader) mainHeader.style.display = "block";
 
     const currentUser = window.EY8_Supabase.getCurrentUser();
     const isAdmin = window.EY8_Supabase.isAdmin();
     const stats = getSummaryStats();
-    const breadcrumbBarHtml = renderSubpageBreadcrumbBar();
 
     // 2. NẾU LÀ ADMIN (VÀ KHÔNG Ở CHẾ ĐỘ XEM THỬ HỌC SINH) -> HIỂN THỊ ADMIN PORTAL
     if (isAdmin && !state.adminPreviewStudentMode) {
@@ -763,13 +637,13 @@
       }
 
       if (state.adminTab === "admin-monitor") {
-        root.innerHTML = breadcrumbBarHtml + renderAdminMonitorView();
+        root.innerHTML = renderAdminMonitorView();
       } else if (state.adminTab === "admin-assignments") {
-        root.innerHTML = breadcrumbBarHtml + renderAdminAssignmentsView();
+        root.innerHTML = renderAdminAssignmentsView();
       } else if (state.adminTab === "admin-content") {
-        root.innerHTML = breadcrumbBarHtml + renderAdminContentView();
+        root.innerHTML = renderAdminContentView();
       } else if (state.adminTab === "admin-users") {
-        root.innerHTML = breadcrumbBarHtml + renderAdminUsersView();
+        root.innerHTML = renderAdminUsersView();
       }
       return;
     }
@@ -840,15 +714,15 @@
     }
 
     if (state.currentTab === "dashboard") {
-      root.innerHTML = breadcrumbBarHtml + renderDashboard(stats);
+      root.innerHTML = renderDashboard(stats);
     } else if (state.currentTab === "unit-study") {
-      root.innerHTML = breadcrumbBarHtml + renderUnitStudy();
+      root.innerHTML = renderUnitStudy();
     } else if (state.currentTab === "exams") {
-      root.innerHTML = breadcrumbBarHtml + renderExamsView();
+      root.innerHTML = renderExamsView();
     } else if (state.currentTab === "mistakes") {
-      root.innerHTML = breadcrumbBarHtml + renderMistakesView();
+      root.innerHTML = renderMistakesView();
     } else if (state.currentTab === "student-progress") {
-      root.innerHTML = breadcrumbBarHtml + renderStudentProgressView(stats);
+      root.innerHTML = renderStudentProgressView(stats);
     }
   }
 
