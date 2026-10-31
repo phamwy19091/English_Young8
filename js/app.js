@@ -29,6 +29,8 @@
     vocabStatusFilter: "all", // 'all' | 'unlearned' | 'learned'
     unitQuizAnswers: {},
     unitQuizSubmitted: false,
+    unitQuizMode: "list", // 'list' (xem toàn bộ) | 'focus' (tập trung từng câu)
+    unitQuizFocusIndex: 0,
 
     // Exam state
     examFilter: "all", // all | 15m | midterm | final
@@ -39,10 +41,14 @@
     examSecondsLeft: 0,
     examTotalSeconds: 0,
 
-    // Mistake practice mode
+    // Mistake practice & Spoiler-Free state
     mistakePracticeActive: false,
     mistakeAnswers: {},
     mistakeSubmitted: false,
+    mistakeFilter: "all", // 'all' | 'unit' | 'exam'
+    mistakeRevealAll: false,
+    mistakeRetryChoices: {}, // lưu đáp án học sinh thử chọn lại trên từng thẻ câu sai
+    mistakeManualReveal: {}, // lưu các câu học sinh bấm "Xem lời giải"
 
     // Admin Portal state
     adminTab: "admin-monitor", // 'admin-monitor' | 'admin-assignments' | 'admin-content' | 'admin-users'
@@ -195,6 +201,91 @@
     return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
   }
 
+  // =========================================================================
+  // HỆ THỐNG TOAST NOTIFICATION & CUSTOM CONFIRM MODAL HIỆN ĐẠI
+  // =========================================================================
+  window.showToast = function (message, type = "info") {
+    let container = document.getElementById("toast-root");
+    if (!container) {
+      container = document.createElement("div");
+      container.id = "toast-root";
+      container.className = "toast-container";
+      document.body.appendChild(container);
+    }
+
+    const icons = {
+      success: "✅",
+      warning: "⚠️",
+      error: "❌",
+      info: "💡"
+    };
+
+    const toastEl = document.createElement("div");
+    toastEl.className = `toast-item ${type}`;
+    toastEl.innerHTML = `
+      <span style="font-size:1.1rem; line-height:1;">${icons[type] || "💡"}</span>
+      <span style="flex:1;">${message}</span>
+    `;
+    container.appendChild(toastEl);
+
+    setTimeout(() => {
+      toastEl.style.opacity = "0";
+      toastEl.style.transform = "translateX(30px)";
+      toastEl.style.transition = "all 0.25s ease";
+      setTimeout(() => {
+        if (toastEl.parentNode) toastEl.parentNode.removeChild(toastEl);
+      }, 260);
+    }, 3200);
+  };
+
+  let pendingConfirmCallback = null;
+  window.showConfirmDialog = function ({
+    title = "Xác nhận thao tác",
+    message = "Bạn có chắc chắn muốn thực hiện thao tác này?",
+    confirmText = "Đồng ý",
+    cancelText = "Hủy bỏ",
+    isDanger = false,
+    onConfirm = null
+  }) {
+    const modalRoot = document.getElementById("modal-root");
+    if (!modalRoot) {
+      if (confirm(message) && typeof onConfirm === "function") onConfirm();
+      return;
+    }
+    pendingConfirmCallback = onConfirm;
+    modalRoot.innerHTML = `
+      <div class="modal-overlay" onclick="closeModal()">
+        <div class="modal-content" style="max-width:440px; padding:26px;" onclick="event.stopPropagation()">
+          <button class="modal-close-btn" onclick="closeModal()">✕</button>
+          <div style="display:flex; align-items:center; gap:12px; margin-bottom:12px;">
+            <div style="width:44px; height:44px; border-radius:12px; display:flex; align-items:center; justify-content:center; font-size:1.4rem; background:${
+              isDanger ? "#FEE2E2" : "#EEF2FF"
+            }; color:${isDanger ? "#DC2626" : "#4F46E5"}; flex-shrink:0;">
+              ${isDanger ? "⚠️" : "❓"}
+            </div>
+            <h3 style="font-size:1.18rem; font-weight:800; color:var(--text-main);">${title}</h3>
+          </div>
+          <p style="font-size:0.92rem; color:#475569; line-height:1.55; margin-bottom:22px;">
+            ${message}
+          </p>
+          <div style="display:flex; justify-content:flex-end; gap:10px;">
+            <button class="btn btn-outline" onclick="closeModal()">${cancelText}</button>
+            <button class="btn ${isDanger ? "btn-danger" : "btn-primary"}" onclick="executeConfirmDialogAction()">
+              ${confirmText}
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+  };
+
+  window.executeConfirmDialogAction = function () {
+    const cb = pendingConfirmCallback;
+    pendingConfirmCallback = null;
+    closeModal();
+    if (typeof cb === "function") cb();
+  };
+
   window.handleBrandClick = function () {
     if (!window.EY8_Supabase || !window.EY8_Supabase.isLoggedIn()) return;
     if (window.EY8_Supabase.isAdmin() && !state.adminPreviewStudentMode) {
@@ -225,11 +316,19 @@
   // Chuyển tab dành cho Học sinh
   window.switchMainTab = function (tabName, unitId) {
     if (state.activeExam && !state.examSubmitted && tabName !== "exams") {
-      if (!confirm("Em đang làm dở bài thi. Em có chắc muốn thoát khỏi phòng thi không?")) {
-        return;
-      }
-      stopExamTimer();
-      state.activeExam = null;
+      showConfirmDialog({
+        title: "Thoát phòng thi đang làm dở?",
+        message: "Em đang làm dở bài thi. Nếu thoát ra bây giờ, lượt làm bài này sẽ bị hủy. Em có chắc muốn thoát không?",
+        confirmText: "Thoát phòng thi",
+        cancelText: "Ở lại làm tiếp",
+        isDanger: true,
+        onConfirm: () => {
+          stopExamTimer();
+          state.activeExam = null;
+          window.switchMainTab(tabName, unitId);
+        }
+      });
+      return;
     }
     state.currentTab = tabName;
     if (unitId) {
@@ -560,6 +659,7 @@
     const mainHeader = document.getElementById("main-header");
     const previewBarRoot = document.getElementById("admin-preview-bar-root");
     const navTabsEl = document.getElementById("main-nav-tabs");
+    const mobileNavRoot = document.getElementById("mobile-nav-root");
     const userContainer = document.getElementById("header-user-container");
     const root = document.getElementById("app-root");
 
@@ -574,6 +674,7 @@
     if (!isLoggedIn) {
       if (mainHeader) mainHeader.style.display = "none";
       if (previewBarRoot) previewBarRoot.innerHTML = "";
+      if (mobileNavRoot) mobileNavRoot.innerHTML = "";
       root.innerHTML = renderFullAuthScreen();
       return;
     }
@@ -613,6 +714,25 @@
           <button class="nav-tab ${state.adminTab === "admin-users" ? "active" : ""}" onclick="switchAdminTab('admin-users')">
             👥 Tài Khoản & Hệ Thống
           </button>
+        `;
+      }
+
+      if (mobileNavRoot) {
+        mobileNavRoot.innerHTML = `
+          <nav class="mobile-bottom-nav" style="background:#0F172A; border-top-color:#334155;">
+            <button class="mobile-nav-item ${state.adminTab === "admin-monitor" ? "active" : ""}" style="color:${state.adminTab === "admin-monitor" ? "#818CF8" : "#94A3B8"}" onclick="switchAdminTab('admin-monitor')">
+              <span class="mobile-nav-icon">📊</span><span>Giám sát</span>
+            </button>
+            <button class="mobile-nav-item ${state.adminTab === "admin-assignments" ? "active" : ""}" style="color:${state.adminTab === "admin-assignments" ? "#818CF8" : "#94A3B8"}" onclick="switchAdminTab('admin-assignments')">
+              <span class="mobile-nav-icon">🎯</span><span>Giao bài</span>
+            </button>
+            <button class="mobile-nav-item ${state.adminTab === "admin-content" ? "active" : ""}" style="color:${state.adminTab === "admin-content" ? "#818CF8" : "#94A3B8"}" onclick="switchAdminTab('admin-content')">
+              <span class="mobile-nav-icon">🗂️</span><span>Ngân hàng đề</span>
+            </button>
+            <button class="mobile-nav-item ${state.adminTab === "admin-users" ? "active" : ""}" style="color:${state.adminTab === "admin-users" ? "#818CF8" : "#94A3B8"}" onclick="switchAdminTab('admin-users')">
+              <span class="mobile-nav-icon">👥</span><span>Tài khoản</span>
+            </button>
+          </nav>
         `;
       }
 
@@ -695,6 +815,28 @@
         <button class="nav-tab ${state.currentTab === "student-progress" ? "active" : ""}" onclick="switchMainTab('student-progress')">
           🏆 Thành Tích
         </button>
+      `;
+    }
+
+    if (mobileNavRoot) {
+      mobileNavRoot.innerHTML = `
+        <nav class="mobile-bottom-nav">
+          <button class="mobile-nav-item ${state.currentTab === "dashboard" ? "active" : ""}" onclick="switchMainTab('dashboard')">
+            <span class="mobile-nav-icon">🏠</span><span>Bàn học</span>
+          </button>
+          <button class="mobile-nav-item ${state.currentTab === "unit-study" ? "active" : ""}" onclick="switchMainTab('unit-study')">
+            <span class="mobile-nav-icon">📚</span><span>6 Unit</span>
+          </button>
+          <button class="mobile-nav-item ${state.currentTab === "exams" ? "active" : ""}" onclick="switchMainTab('exams')">
+            <span class="mobile-nav-icon">📝</span><span>Luyện đề</span>
+          </button>
+          <button class="mobile-nav-item ${state.currentTab === "mistakes" ? "active" : ""}" onclick="switchMainTab('mistakes')">
+            <span class="mobile-nav-icon">📓</span><span>Câu sai (${stats.mistakeCount})</span>
+          </button>
+          <button class="mobile-nav-item ${state.currentTab === "student-progress" ? "active" : ""}" onclick="switchMainTab('student-progress')">
+            <span class="mobile-nav-icon">🏆</span><span>Thành tích</span>
+          </button>
+        </nav>
       `;
     }
 
@@ -1713,6 +1855,13 @@
 
             <button class="fc-nav-btn" onclick="nextFlashcard()">Từ tiếp theo ➡</button>
           </div>
+
+          <div class="fc-kbd-bar">
+            <span class="fc-kbd-item"><kbd>Space</kbd> Lật thẻ</span>
+            <span class="fc-kbd-item"><kbd>⬅</kbd> <kbd>➡</kbd> Chuyển từ</span>
+            <span class="fc-kbd-item"><kbd>S</kbd> Nghe phát âm</span>
+            <span class="fc-kbd-item"><kbd>Enter</kbd> Đánh dấu Đã thuộc</span>
+          </div>
         </div>
       `;
     }
@@ -1955,6 +2104,11 @@
     }
 
     const unit = (window.STUDY_DATA.units || []).find((u) => u.id === state.selectedUnitId);
+    const wordObj = unit && unit.vocabulary ? unit.vocabulary.find((v) => v.id === vocabId) : null;
+    if (wordObj) {
+      showToast(`Đã thuộc từ "${wordObj.word}" (${wordObj.meaning})!`, "success");
+    }
+
     if (unit && fromFlashcard) {
       if (state.fcDeckMode === "unlearned") {
         // Từ vừa học đã tự động rời khỏi danh sách Chưa thuộc, giữ nguyên fcIndex (hoặc về 0 nếu ở cuối)
@@ -1978,6 +2132,7 @@
     if (window.EY8_Supabase && window.EY8_Supabase.syncVocabProgress) {
       window.EY8_Supabase.syncVocabProgress(vocabId, state.selectedUnitId, "learning", state);
     }
+    showToast("Đã chuyển từ vựng về danh sách 'Chưa thuộc' để ôn lại.", "info");
     renderApp();
   };
 
@@ -2000,25 +2155,50 @@
     }
   };
 
+  // =========================================================================
+  // 2B. NGỮ ÂM & NGỮ PHÁP TRỰC QUAN (VISUAL GRAMMAR & PRONUNCIATION STUDIO)
+  // =========================================================================
   function renderUnitGrammarSubTab(unit) {
     const pronHtml = unit.pronunciation
       ? `
-        <div class="grammar-card">
-          <h3>🗣️ Ngữ âm trọng tâm Unit ${unit.number}: ${unit.pronunciation.sounds.join(" và ")}</h3>
-          <p style="font-size:0.88rem; color:var(--text-muted); margin-bottom:14px;">Bấm vào từng từ ví dụ bên dưới để nghe máy đọc mẫu và phân biệt âm:</p>
-          <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:16px;">
+        <div class="grammar-modern-card">
+          <div class="grammar-card-header">
+            <div class="grammar-header-icon" style="background:linear-gradient(135deg, #0EA5E9, #0284C7);">🗣️</div>
+            <div>
+              <div style="font-size:0.76rem; font-weight:800; color:#0284C7; text-transform:uppercase;">
+                PHÒNG LUYỆN PHÁT ÂM • UNIT ${unit.number}
+              </div>
+              <h3 style="font-size:1.25rem; font-weight:900; color:var(--text-main);">
+                Phân biệt cặp âm trọng tâm: ${unit.pronunciation.sounds.join("  &  ")}
+              </h3>
+            </div>
+          </div>
+          <p style="font-size:0.88rem; color:var(--text-muted);">
+            👆 Bấm trực tiếp vào từng từ tiếng Anh bên dưới để nghe giọng đọc chuẩn bản xứ và cảm nhận sự khác biệt của khẩu hình:
+          </p>
+          <div class="pron-studio-grid">
             ${unit.pronunciation.explanation
               .map(
                 (item) => `
-                <div style="background:#F8FAFC; border:1px solid var(--border); padding:16px; border-radius:12px;">
-                  <div style="font-size:1.1rem; font-weight:800; color:var(--primary); margin-bottom:6px;">Âm ${item.sound}</div>
-                  <p style="font-size:0.88rem; color:#334155; margin-bottom:12px;">${item.desc}</p>
-                  <div style="display:flex; flex-wrap:wrap; gap:8px;">
+                <div class="pron-studio-card">
+                  <div>
+                    <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:10px;">
+                      <span class="pron-ipa-badge">${item.sound}</span>
+                      <span style="font-size:0.76rem; font-weight:700; color:#4338CA; background:white; padding:4px 10px; border-radius:99px; border:1px solid #C7D2FE;">
+                        🎧 Bấm từ để nghe
+                      </span>
+                    </div>
+                    <p style="font-size:0.9rem; color:#1E293B; font-weight:500; line-height:1.55;">
+                      ${item.desc}
+                    </p>
+                  </div>
+                  <div style="display:flex; flex-wrap:wrap; gap:8px; padding-top:8px; border-top:1px dashed #CBD5E1;">
                     ${item.examples
                       .map(
                         (ex) => `
-                        <button class="btn btn-outline btn-sm" onclick="speakEnglish('${ex.replace(/'/g, "\\'")}', event)">
-                          🔊 ${ex}
+                        <button class="pron-word-chip" onclick="speakEnglish('${ex.replace(/'/g, "\\'")}', event)">
+                          <span>🔊</span>
+                          <span>${ex}</span>
                         </button>
                       `
                       )
@@ -2035,17 +2215,50 @@
 
     const grammarHtml = (unit.grammar || [])
       .map(
-        (g) => `
-        <div class="grammar-card">
-          <h3>📐 ${g.title}</h3>
-          <ul class="grammar-list">
-            ${g.rules.map((r) => `<li>• ${r}</li>`).join("")}
-          </ul>
-          <div class="exam-trap-box">
-            <h4>⚠️ BẪY ĐỀ THI HAY GẶP & MẸO LÀM BÀI NHANH:</h4>
-            <ul>
-              ${g.examTips.map((t) => `<li>${t}</li>`).join("")}
-            </ul>
+        (g, gIdx) => `
+        <div class="grammar-modern-card">
+          <div class="grammar-card-header">
+            <div class="grammar-header-icon">📐</div>
+            <div>
+              <div style="font-size:0.76rem; font-weight:800; color:var(--primary); text-transform:uppercase;">
+                CHUYÊN ĐỀ NGỮ PHÁP #${gIdx + 1} • UNIT ${unit.number}
+              </div>
+              <h3 style="font-size:1.25rem; font-weight:900; color:var(--text-main);">
+                ${g.title}
+              </h3>
+            </div>
+          </div>
+
+          <div class="grammar-rules-grid">
+            ${g.rules
+              .map(
+                (r, rIdx) => `
+                <div class="grammar-rule-box">
+                  <span class="grammar-rule-num">${rIdx + 1}</span>
+                  <div style="flex:1; line-height:1.6;">${r}</div>
+                </div>
+              `
+              )
+              .join("")}
+          </div>
+
+          <div class="exam-trap-modern">
+            <div style="display:flex; align-items:center; gap:8px; font-size:0.95rem; font-weight:900; color:#92400E;">
+              <span>⚠️</span>
+              <span>BẪY ĐỀ THI HAY GẶP & MẸO NHẬN BIẾT NHANH TRONG 5 GIÂY:</span>
+            </div>
+            <div class="trap-tips-grid">
+              ${g.examTips
+                .map(
+                  (t) => `
+                  <div class="trap-tip-item">
+                    <span style="font-size:1.05rem;">💡</span>
+                    <span>${t}</span>
+                  </div>
+                `
+                )
+                .join("")}
+            </div>
           </div>
         </div>
       `
@@ -2055,16 +2268,26 @@
     return `
       ${pronHtml}
       ${grammarHtml}
-      <div style="text-align:center; margin-top:24px;">
+      <div style="background:linear-gradient(135deg, #EEF2FF 0%, #E0E7FF 100%); border:1.5px solid #C7D2FE; padding:22px 24px; border-radius:18px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:14px; margin-top:24px;">
+        <div>
+          <h4 style="font-size:1.08rem; font-weight:800; color:#1E1B4B;">🎯 Đã nắm vững lý thuyết Unit ${unit.number}?</h4>
+          <p style="font-size:0.86rem; color:#4338CA;">Hãy áp dụng ngay vào ${unit.practice.length} câu bài tập thực hành có giải thích chi tiết!</p>
+        </div>
         <button class="btn btn-primary" onclick="switchUnitSubTab('practice')">
-          ✍️ Áp dụng làm ngay ${unit.practice.length} câu bài tập Unit ${unit.number} →
+          ✍️ Làm ngay ${unit.practice.length} câu bài tập Unit ${unit.number} ➔
         </button>
       </div>
     `;
   }
 
+  // =========================================================================
+  // 2C. BÀI TẬP THỰC HÀNH UNIT (STICKY PROGRESS BAR & FOCUS MODE / LIST MODE)
+  // =========================================================================
   function renderUnitPracticeSubTab(unit) {
     const questions = unit.practice || [];
+    const answeredCount = Object.keys(state.unitQuizAnswers).length;
+    const pctDone = questions.length > 0 ? Math.round((answeredCount / questions.length) * 100) : 0;
+
     let correctCount = 0;
     if (state.unitQuizSubmitted) {
       questions.forEach((q) => {
@@ -2099,21 +2322,137 @@
       `
       : "";
 
-    const questionsHtml = questions
+    // Chấm tròn nhảy nhanh câu hỏi
+    const miniDotsHtml = questions
       .map((q, idx) => {
-        const userAns = state.unitQuizAnswers[q.id];
-        return renderQuestionCardHtml(q, idx + 1, userAns, state.unitQuizSubmitted, "selectUnitQuizOption");
+        const uAns = state.unitQuizAnswers[q.id];
+        let bg = "#F1F5F9";
+        let color = "#475569";
+        let border = "#CBD5E1";
+        if (!state.unitQuizSubmitted) {
+          if (uAns !== undefined) {
+            bg = "#4F46E5";
+            color = "white";
+            border = "#4F46E5";
+          }
+        } else {
+          if (uAns === q.answer) {
+            bg = "#10B981";
+            color = "white";
+            border = "#10B981";
+          } else {
+            bg = "#EF4444";
+            color = "white";
+            border = "#EF4444";
+          }
+        }
+        const isFocusCurrent = state.unitQuizMode === "focus" && state.unitQuizFocusIndex === idx;
+        return `
+          <button
+            style="width:30px; height:30px; border-radius:8px; border:1.5px solid ${border}; background:${bg}; color:${color}; font-size:0.78rem; font-weight:800; cursor:pointer; ${
+              isFocusCurrent ? "box-shadow:0 0 0 3px rgba(79,70,229,0.3); transform:scale(1.08);" : ""
+            }"
+            onclick="jumpToUnitQuizQuestion(${idx}, '${q.id}')"
+          >
+            ${idx + 1}
+          </button>
+        `;
       })
       .join("");
 
+    // Nội dung câu hỏi (Chế độ Danh sách hoặc Chế độ Tập trung từng câu)
+    let questionsBodyHtml = "";
+    if (state.unitQuizMode === "focus") {
+      if (state.unitQuizFocusIndex >= questions.length) state.unitQuizFocusIndex = 0;
+      const focusQ = questions[state.unitQuizFocusIndex];
+      const userAns = state.unitQuizAnswers[focusQ.id];
+      questionsBodyHtml = `
+        ${renderQuestionCardHtml(
+          focusQ,
+          state.unitQuizFocusIndex + 1,
+          userAns,
+          state.unitQuizSubmitted,
+          "selectUnitQuizOption"
+        )}
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:20px;">
+          <button
+            class="btn btn-outline"
+            ${state.unitQuizFocusIndex === 0 ? "disabled" : ""}
+            onclick="stepUnitQuizFocus(-1)"
+          >
+            ⬅ Câu trước
+          </button>
+          <span style="font-size:0.88rem; font-weight:700; color:var(--text-muted);">
+            Câu ${state.unitQuizFocusIndex + 1} / ${questions.length}
+          </span>
+          ${
+            state.unitQuizFocusIndex < questions.length - 1
+              ? `<button class="btn btn-primary" onclick="stepUnitQuizFocus(1)">Câu tiếp theo ➡</button>`
+              : !state.unitQuizSubmitted
+              ? `<button class="btn btn-success" onclick="submitUnitQuiz('${unit.id}')">✅ Nộp bài & Chấm điểm</button>`
+              : `<button class="btn btn-outline" onclick="resetUnitQuiz()">🔄 Làm lại</button>`
+          }
+        </div>
+      `;
+    } else {
+      questionsBodyHtml = questions
+        .map((q, idx) => {
+          const userAns = state.unitQuizAnswers[q.id];
+          return renderQuestionCardHtml(q, idx + 1, userAns, state.unitQuizSubmitted, "selectUnitQuizOption");
+        })
+        .join("");
+    }
+
     return `
       ${scoreBannerHtml}
-      ${questionsHtml}
+
+      <div class="quiz-sticky-bar">
+        <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+          <div class="quiz-mode-switch">
+            <button
+              class="quiz-mode-btn ${state.unitQuizMode === "list" ? "active" : ""}"
+              onclick="setUnitQuizViewMode('list')"
+            >
+              📋 Xem cả danh sách (${questions.length} câu)
+            </button>
+            <button
+              class="quiz-mode-btn ${state.unitQuizMode === "focus" ? "active" : ""}"
+              onclick="setUnitQuizViewMode('focus')"
+            >
+              🎯 Từng câu một
+            </button>
+          </div>
+          <span style="font-size:0.84rem; font-weight:700; color:#334155;">
+            Đã chọn: <strong style="color:var(--primary);">${answeredCount}/${questions.length}</strong> (${pctDone}%)
+          </span>
+        </div>
+
+        <div style="display:flex; align-items:center; gap:5px; flex-wrap:wrap;">
+          ${miniDotsHtml}
+        </div>
+
+        ${
+          !state.unitQuizSubmitted
+            ? `
+            <button class="btn btn-primary btn-sm" style="padding:8px 14px;" onclick="submitUnitQuiz('${unit.id}')">
+              ✅ Nộp bài
+            </button>
+          `
+            : `
+            <button class="btn btn-outline btn-sm" onclick="resetUnitQuiz()">
+              🔄 Làm lại
+            </button>
+          `
+        }
+      </div>
+
+      ${questionsBodyHtml}
+
       ${
-        !state.unitQuizSubmitted
+        !state.unitQuizSubmitted && state.unitQuizMode === "list"
           ? `
           <div style="background:white; padding:20px; border-radius:var(--radius-lg); border:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px;">
-            <span>Đã chọn: <strong>${Object.keys(state.unitQuizAnswers).length} / ${questions.length}</strong> câu</span>
+            <span>Đã hoàn thành: <strong>${answeredCount} / ${questions.length}</strong> câu hỏi</span>
             <button class="btn btn-primary" onclick="submitUnitQuiz('${unit.id}')">✅ Nộp bài & Xem giải thích chi tiết</button>
           </div>
         `
@@ -2122,22 +2461,37 @@
     `;
   }
 
+  window.setUnitQuizViewMode = function (mode) {
+    state.unitQuizMode = mode;
+    renderApp();
+  };
+
+  window.stepUnitQuizFocus = function (delta) {
+    const unit = (window.STUDY_DATA.units || []).find((u) => u.id === state.selectedUnitId);
+    if (!unit || !unit.practice) return;
+    const nextIdx = state.unitQuizFocusIndex + delta;
+    if (nextIdx >= 0 && nextIdx < unit.practice.length) {
+      state.unitQuizFocusIndex = nextIdx;
+      renderApp();
+    }
+  };
+
+  window.jumpToUnitQuizQuestion = function (idx, qId) {
+    if (state.unitQuizMode === "focus") {
+      state.unitQuizFocusIndex = idx;
+      renderApp();
+    } else {
+      scrollToQuestion(qId);
+    }
+  };
+
   window.selectUnitQuizOption = function (qId, optIdx) {
     if (state.unitQuizSubmitted) return;
     state.unitQuizAnswers[qId] = optIdx;
     renderApp();
   };
 
-  window.submitUnitQuiz = function (unitId) {
-    const unit = (window.STUDY_DATA.units || []).find((u) => u.id === unitId);
-    if (!unit) return;
-    const answeredCount = Object.keys(state.unitQuizAnswers).length;
-    if (answeredCount < unit.practice.length) {
-      if (!confirm(`Em mới làm ${answeredCount}/${unit.practice.length} câu. Em có chắc muốn chấm điểm luôn không?`)) {
-        return;
-      }
-    }
-
+  function finalizeUnitQuizSubmission(unit) {
     let correct = 0;
     const answersRecord = {};
     const answersList = [];
@@ -2168,9 +2522,9 @@
       }
     });
 
-    const prevBest = state.unitScores[unitId] || 0;
+    const prevBest = state.unitScores[unit.id] || 0;
     if (correct >= prevBest) {
-      state.unitScores[unitId] = correct;
+      state.unitScores[unit.id] = correct;
     }
 
     const score10 = Number(((correct / unit.practice.length) * 10).toFixed(2));
@@ -2206,25 +2560,70 @@
     }
 
     state.unitQuizSubmitted = true;
+    showToast(`Đã chấm điểm Unit ${unit.number}: Đạt ${score10}/10 điểm (${correct}/${unit.practice.length} câu)!`, "success");
     renderApp();
-    window.scrollTo({ top: 180, behavior: "smooth" });
+    window.scrollTo({ top: 150, behavior: "smooth" });
+  }
+
+  window.submitUnitQuiz = function (unitId) {
+    const unit = (window.STUDY_DATA.units || []).find((u) => u.id === unitId);
+    if (!unit) return;
+    const answeredCount = Object.keys(state.unitQuizAnswers).length;
+    if (answeredCount < unit.practice.length) {
+      showConfirmDialog({
+        title: "Chưa chọn hết câu hỏi",
+        message: `Em mới chọn ${answeredCount}/${unit.practice.length} câu. Các câu bỏ trống sẽ tính là sai. Em có muốn nộp bài chấm điểm luôn không?`,
+        confirmText: "Nộp bài ngay",
+        cancelText: "Làm tiếp",
+        onConfirm: () => finalizeUnitQuizSubmission(unit)
+      });
+      return;
+    }
+    finalizeUnitQuizSubmission(unit);
   };
 
   window.resetUnitQuiz = function () {
     state.unitQuizAnswers = {};
     state.unitQuizSubmitted = false;
+    state.unitQuizFocusIndex = 0;
     renderApp();
   };
+
+  // =========================================================================
+  // RENDER THẺ CÂU HỎI CHUẨN PHÒNG THI (ANSWER BUBBLES A / B / C / D)
+  // =========================================================================
+  function parseOptionBubble(optText, fallbackIdx) {
+    const letters = ["A", "B", "C", "D"];
+    const raw = String(optText || "").trim();
+    const match = raw.match(/^([A-Da-d])[\.\)\:\-]\s*(.*)$/);
+    if (match) {
+      return {
+        letter: match[1].toUpperCase(),
+        content: match[2]
+      };
+    }
+    return {
+      letter: letters[fallbackIdx] || "A",
+      content: raw
+    };
+  }
 
   function renderQuestionCardHtml(q, displayNum, userAns, isSubmitted, clickHandlerName) {
     const optionsHtml = q.options
       .map((opt, oIdx) => {
-        let cls = "option-btn";
+        const parsed = parseOptionBubble(opt, oIdx);
+        let cls = "option-btn-modern";
+        let stateTag = "";
         if (!isSubmitted) {
           if (userAns === oIdx) cls += " selected";
         } else {
-          if (oIdx === q.answer) cls += " correct-ans";
-          else if (userAns === oIdx && userAns !== q.answer) cls += " wrong-ans";
+          if (oIdx === q.answer) {
+            cls += " correct-ans";
+            stateTag = `<span style="margin-left:auto; font-size:0.75rem; font-weight:800; color:#047857;">✔ Đáp án đúng</span>`;
+          } else if (userAns === oIdx && userAns !== q.answer) {
+            cls += " wrong-ans";
+            stateTag = `<span style="margin-left:auto; font-size:0.75rem; font-weight:800; color:#B91C1C;">✘ Em đã chọn</span>`;
+          }
         }
         return `
           <button
@@ -2232,7 +2631,9 @@
             ${isSubmitted ? "disabled" : ""}
             onclick="${clickHandlerName}('${q.id}', ${oIdx})"
           >
-            ${opt}
+            <span class="opt-letter-bubble">${parsed.letter}</span>
+            <span style="flex:1;">${parsed.content}</span>
+            ${stateTag}
           </button>
         `;
       })
@@ -2240,14 +2641,35 @@
 
     const statusBadge = isSubmitted
       ? userAns === q.answer
-        ? `<span style="color:var(--success); font-weight:700; font-size:0.85rem;">✔ Chính xác</span>`
-        : `<span style="color:var(--danger); font-weight:700; font-size:0.85rem;">✘ Sai (${userAns === undefined ? "Chưa chọn" : "Đã lưu vào Sổ tay"})</span>`
+        ? `<span style="background:#D1FAE5; color:#065F46; padding:3px 10px; border-radius:99px; font-weight:800; font-size:0.78rem;">✔ Chính xác</span>`
+        : `<span style="background:#FEE2E2; color:#991B1B; padding:3px 10px; border-radius:99px; font-weight:800; font-size:0.78rem;">✘ ${
+            userAns === undefined ? "Chưa chọn đáp án" : "Sai • Đã lưu vào Sổ tay"
+          }</span>`
+      : userAns !== undefined
+      ? `<span style="background:#EEF2FF; color:#4F46E5; padding:3px 10px; border-radius:99px; font-weight:700; font-size:0.76rem;">Đã chọn phương án ${
+          ["A", "B", "C", "D"][userAns]
+        }</span>`
       : "";
 
     return `
       <div class="question-card" id="qcard-${q.id}">
-        ${q.section ? `<div style="font-size:0.78rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; margin-bottom:8px;">${q.section}</div>` : ""}
-        ${q.passage ? `<div class="passage-box"><strong>📖 Bài đọc:</strong>\n${q.passage}</div>` : ""}
+        ${
+          q.section
+            ? `<div style="font-size:0.76rem; font-weight:800; color:var(--primary); text-transform:uppercase; letter-spacing:0.03em; margin-bottom:8px;">📌 ${q.section}</div>`
+            : ""
+        }
+        ${
+          q.passage
+            ? `
+            <div class="reading-passage-card">
+              <div style="font-size:0.8rem; font-weight:800; color:#0369A1; text-transform:uppercase; margin-bottom:6px;">
+                📖 ĐOẠN VĂN ĐỌC HIỂU (READING PASSAGE):
+              </div>
+              <div>${q.passage}</div>
+            </div>
+          `
+            : ""
+        }
         <div class="q-header">
           <span class="q-num">Câu ${displayNum}</span>
           ${statusBadge}
@@ -2270,7 +2692,7 @@
   }
 
   // =========================================================================
-  // 3. STUDENT PORTAL: PHÒNG LUYỆN ĐỀ THI (EXAMS)
+  // 3. STUDENT PORTAL: PHÒNG LUYỆN ĐỀ THI (EXAM TICKET CARDS & EXAM ROOM)
   // =========================================================================
   function renderExamsView() {
     if (state.activeExam) {
@@ -2282,45 +2704,102 @@
       state.examFilter === "all" ? exams : exams.filter((e) => e.category === state.examFilter);
 
     return `
-      <div class="section-header">
+      <div class="section-header" style="margin-bottom:22px;">
         <div>
           <h2>📝 Phòng Luyện Đề Kiểm Tra & Thi Học Kì 1</h2>
-          <p style="font-size:0.9rem; color:var(--text-muted);">Đề thi thiết kế bám sát ma trận đề kiểm tra Tiếng Anh 8 Global Success</p>
+          <p style="font-size:0.9rem; color:var(--text-muted);">
+            Bộ đề bám sát cấu trúc đề thi Tiếng Anh 8 Global Success • Tự động bấm giờ và phân tích lỗi sai
+          </p>
         </div>
         <div style="display:flex; gap:8px; flex-wrap:wrap;">
-          <button class="unit-pill ${state.examFilter === "all" ? "active" : ""}" onclick="setExamFilter('all')">Tất cả (${exams.length})</button>
-          <button class="unit-pill ${state.examFilter === "15m" ? "active" : ""}" onclick="setExamFilter('15m')">Đề 15 Phút</button>
-          <button class="unit-pill ${state.examFilter === "midterm" ? "active" : ""}" onclick="setExamFilter('midterm')">Đề Giữa Kì 1</button>
-          <button class="unit-pill ${state.examFilter === "final" ? "active" : ""}" onclick="setExamFilter('final')">Đề Cuối Kì 1</button>
+          <button class="unit-pill ${state.examFilter === "all" ? "active" : ""}" onclick="setExamFilter('all')">
+            Tất cả (${exams.length})
+          </button>
+          <button class="unit-pill ${state.examFilter === "15m" ? "active" : ""}" onclick="setExamFilter('15m')">
+            ⚡ Đề 15 Phút
+          </button>
+          <button class="unit-pill ${state.examFilter === "midterm" ? "active" : ""}" onclick="setExamFilter('midterm')">
+            🔥 Đề Giữa Kì 1
+          </button>
+          <button class="unit-pill ${state.examFilter === "final" ? "active" : ""}" onclick="setExamFilter('final')">
+            🏆 Đề Cuối Kì 1
+          </button>
         </div>
       </div>
 
-      <div class="units-grid">
+      <div class="exam-tickets-grid">
         ${filtered
           .map((ex) => {
             const attempts = state.examHistory.filter((h) => h.examId === ex.id);
             const bestScore =
-              attempts.length > 0 ? Math.max(...attempts.map((a) => a.score10)).toFixed(1) : null;
+              attempts.length > 0 ? Math.max(...attempts.map((a) => Number(a.score10 || 0))).toFixed(1) : null;
+
+            let accentColor = "#4F46E5";
+            let pillBg = "#EEF2FF";
+            let pillColor = "#4338CA";
+            if (ex.category === "15m") {
+              accentColor = "#0EA5E9";
+              pillBg = "#E0F2FE";
+              pillColor = "#0369A1";
+            } else if (ex.category === "midterm") {
+              accentColor = "#F59E0B";
+              pillBg = "#FEF3C7";
+              pillColor = "#B45309";
+            } else if (ex.category === "final") {
+              accentColor = "#E11D48";
+              pillBg = "#FFE4E6";
+              pillColor = "#BE123C";
+            }
 
             return `
-              <div class="unit-card">
-                <div>
-                  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-                    <span class="fc-type" style="margin:0;">${ex.badge} • ⏱ ${ex.durationMinutes} phút</span>
-                    <span style="font-size:0.82rem; font-weight:700; color:var(--text-muted);">${ex.questions.length} câu</span>
+              <div class="exam-ticket-card">
+                <div class="exam-ticket-top-strip" style="background:${accentColor};"></div>
+                <div class="exam-ticket-body">
+                  <div>
+                    <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:12px;">
+                      <div class="exam-meta-pills">
+                        <span class="exam-meta-pill" style="background:${pillBg}; color:${pillColor};">
+                          ${ex.badge || "Đề kiểm tra"}
+                        </span>
+                        <span class="exam-meta-pill" style="background:#F1F5F9; color:#475569;">
+                          ⏱️ ${ex.durationMinutes} phút
+                        </span>
+                        <span class="exam-meta-pill" style="background:#F1F5F9; color:#475569;">
+                          📋 ${ex.questions.length} câu
+                        </span>
+                      </div>
+                    </div>
+
+                    <h3 style="font-size:1.15rem; font-weight:900; color:var(--text-main); margin-bottom:6px; line-height:1.3;">
+                      ${ex.title}
+                    </h3>
+                    <div style="font-size:0.82rem; color:${accentColor}; font-weight:700; margin-bottom:8px;">
+                      📌 Phạm vi: ${ex.scope}
+                    </div>
+                    <p style="font-size:0.86rem; color:#475569; line-height:1.55;">
+                      ${ex.description}
+                    </p>
                   </div>
-                  <h3 class="unit-title" style="margin-bottom:6px;">${ex.title}</h3>
-                  <div style="font-size:0.82rem; color:var(--primary); font-weight:600; margin-bottom:8px;">📌 Phạm vi: ${ex.scope}</div>
-                  <p class="unit-summary">${ex.description}</p>
-                </div>
-                <div>
-                  <div class="unit-meta">
-                    <span>Số lần đã làm: <strong>${attempts.length} lần</strong></span>
-                    <span>Điểm cao nhất: <strong style="color:var(--success)">${bestScore ? bestScore + "/10" : "Chưa thi"}</strong></span>
+
+                  <div>
+                    <div class="exam-stats-box" style="margin-bottom:14px;">
+                      <span>Số lượt đã thi: <strong>${attempts.length} lần</strong></span>
+                      <span>
+                        Điểm cao nhất:
+                        <strong style="color:${bestScore !== null ? "#059669" : "#64748B"};">
+                          ${bestScore !== null ? bestScore + " / 10đ" : "Chưa làm"}
+                        </strong>
+                      </span>
+                    </div>
+
+                    <button
+                      class="btn btn-primary"
+                      style="width:100%; background:${accentColor};"
+                      onclick="startExamById('${ex.id}')"
+                    >
+                      ${bestScore !== null ? "🔄 Vào Thi Lại Đề Này ➔" : "✍️ Bắt Đầu Vào Phòng Thi ➔"}
+                    </button>
                   </div>
-                  <button class="btn btn-primary" style="width:100%" onclick="startExamById('${ex.id}')">
-                    ✍️ Bắt đầu làm bài
-                  </button>
                 </div>
               </div>
             `;
@@ -2353,7 +2832,7 @@
         if (timerEl) timerEl.textContent = formatTime(state.examSecondsLeft);
       } else {
         stopExamTimer();
-        alert("⏰ Đã hết thời gian làm bài! Hệ thống sẽ tự động chấm điểm bài thi của em.");
+        showToast("⏰ Đã hết thời gian làm bài! Hệ thống tự động chấm điểm bài thi.", "warning");
         submitActiveExam(true);
       }
     }, 1000);
@@ -2391,9 +2870,11 @@
       .join("");
 
     return `
-      <div style="margin-bottom:16px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;">
+      <div style="background:white; border:1px solid var(--border); border-radius:14px; padding:12px 18px; margin-bottom:18px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;">
         <button class="btn btn-outline btn-sm" onclick="exitExamRoom()">⬅ Quay lại danh sách đề thi</button>
-        <span style="font-weight:700; color:var(--primary);">${ex.title}</span>
+        <div style="font-weight:800; color:var(--text-main); font-size:0.95rem;">
+          📝 ${ex.title} <span style="color:var(--text-muted); font-weight:600;">(${ex.questions.length} câu • ${ex.durationMinutes} phút)</span>
+        </div>
       </div>
 
       ${
@@ -2444,9 +2925,9 @@
             <div class="timer-value" id="exam-timer-display">${formatTime(state.examSecondsLeft)}</div>
           </div>
 
-          <div style="display:flex; justify-content:space-between; font-size:0.86rem; font-weight:600;">
+          <div style="display:flex; justify-content:space-between; font-size:0.86rem; font-weight:700; margin-bottom:6px;">
             <span>Tiến độ làm bài:</span>
-            <span>${answeredCount} / ${questions.length} câu</span>
+            <span style="color:var(--primary);">${answeredCount} / ${questions.length} câu</span>
           </div>
 
           <div class="q-palette">
@@ -2482,19 +2963,9 @@
     renderApp();
   };
 
-  window.submitActiveExam = function (forceSubmit) {
+  function finalizeActiveExamSubmission() {
     const ex = state.activeExam;
     if (!ex || state.examSubmitted) return;
-    const answeredCount = Object.keys(state.examAnswers).length;
-    if (!forceSubmit && answeredCount < ex.questions.length) {
-      if (
-        !confirm(
-          `Em mới trả lời ${answeredCount}/${ex.questions.length} câu. Em có chắc chắn muốn nộp bài sớm không?`
-        )
-      ) {
-        return;
-      }
-    }
 
     stopExamTimer();
     let correct = 0;
@@ -2561,15 +3032,43 @@
     }
 
     state.examSubmitted = true;
+    showToast(`Hoàn thành bài thi! Điểm của em: ${score10}/10 điểm.`, "success");
     renderApp();
     window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  window.submitActiveExam = function (forceSubmit) {
+    const ex = state.activeExam;
+    if (!ex || state.examSubmitted) return;
+    const answeredCount = Object.keys(state.examAnswers).length;
+    if (!forceSubmit && answeredCount < ex.questions.length) {
+      showConfirmDialog({
+        title: "Nộp bài thi sớm?",
+        message: `Em mới trả lời ${answeredCount}/${ex.questions.length} câu. Các câu chưa chọn sẽ bị tính 0 điểm. Em có chắc chắn muốn nộp bài ngay không?`,
+        confirmText: "Nộp bài & Chấm điểm",
+        cancelText: "Kiểm tra lại bài",
+        onConfirm: () => finalizeActiveExamSubmission()
+      });
+      return;
+    }
+    finalizeActiveExamSubmission();
   };
 
   window.exitExamRoom = function () {
     if (!state.examSubmitted) {
-      if (!confirm("Em đang làm dở đề thi. Thoát ra sẽ hủy lượt làm bài này. Em có chắc không?")) {
-        return;
-      }
+      showConfirmDialog({
+        title: "Thoát khỏi phòng thi?",
+        message: "Em đang làm dở đề thi. Nếu thoát ra lúc này, kết quả bài đang làm sẽ bị hủy. Em có chắc muốn thoát không?",
+        confirmText: "Thoát phòng thi",
+        cancelText: "Tiếp tục làm bài",
+        isDanger: true,
+        onConfirm: () => {
+          stopExamTimer();
+          state.activeExam = null;
+          renderApp();
+        }
+      });
+      return;
     }
     stopExamTimer();
     state.activeExam = null;
@@ -2577,70 +3076,210 @@
   };
 
   // =========================================================================
-  // 4. STUDENT PORTAL: SỔ TAY CÂU SAI (MISTAKES)
+  // 4. STUDENT PORTAL: SỔ TAY CÂU SAI THÔNG MINH (SPOILER-FREE RETRY CARDS)
   // =========================================================================
   function renderMistakesView() {
-    const mistakeList = Object.values(state.mistakes);
+    const allMistakes = Object.values(state.mistakes);
+    const unitMistakesCount = allMistakes.filter((m) => (m.source || "").toLowerCase().includes("unit")).length;
+    const examMistakesCount = allMistakes.length - unitMistakesCount;
 
-    const mistakeSectionHtml =
-      mistakeList.length === 0
-        ? `
-          <div style="background:white; border:1px solid var(--border); border-radius:var(--radius-lg); padding:36px; text-align:center; margin-bottom:32px;">
-            <div style="font-size:3rem; margin-bottom:10px;">🎉</div>
-            <h3 style="font-size:1.25rem; font-weight:800; margin-bottom:6px;">Sổ tay câu sai đang trống!</h3>
-            <p style="color:var(--text-muted); margin-bottom:16px;">Khi em làm bài tập các Unit hoặc làm Đề thi mà có câu trả lời sai, hệ thống sẽ tự động gom vào đây để em ôn lại trước ngày thi thật.</p>
-            <button class="btn btn-primary" onclick="switchMainTab('exams')">📝 Đi tới Phòng Luyện Đề</button>
-          </div>
-        `
-        : state.mistakePracticeActive
-        ? renderMistakePracticeMode(mistakeList)
-        : `
-          <div style="background:#FEF2F2; border:1px solid #FECACA; border-radius:var(--radius-lg); padding:20px 24px; margin-bottom:20px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px;">
-            <div>
-              <h3 style="color:#991B1B; font-size:1.15rem; font-weight:800;">🎯 Em đang có ${mistakeList.length} câu cần ôn tập lại</h3>
-              <p style="color:#7F1D1D; font-size:0.9rem;">Làm lại các câu từng sai là cách nhanh nhất để tăng từ 7–8 điểm lên 9–10 điểm!</p>
+    const mistakeList = allMistakes.filter((m) => {
+      if (state.mistakeFilter === "unit") return (m.source || "").toLowerCase().includes("unit");
+      if (state.mistakeFilter === "exam") return !(m.source || "").toLowerCase().includes("unit");
+      return true;
+    });
+
+    if (allMistakes.length === 0) {
+      return `
+        <div class="section-header">
+          <h2>📓 Sổ Tay Câu Hay Sai Của Em</h2>
+        </div>
+        <div style="background:white; border:1.5px solid var(--border); border-radius:20px; padding:44px 24px; text-align:center; margin-bottom:32px;">
+          <div style="font-size:3.4rem; margin-bottom:12px;">🎉</div>
+          <h3 style="font-size:1.35rem; font-weight:900; margin-bottom:8px;">Sổ tay câu sai đang trống!</h3>
+          <p style="color:var(--text-muted); max-width:520px; margin:0 auto 20px;">
+            Khi em làm bài tập các Unit hoặc làm Đề thi mà có câu trả lời sai, hệ thống sẽ tự động gom vào đây để em tự thử sức lại trước ngày thi thật.
+          </p>
+          <button class="btn btn-primary" onclick="switchMainTab('exams')">📝 Đi tới Phòng Luyện Đề</button>
+        </div>
+      `;
+    }
+
+    if (state.mistakePracticeActive) {
+      return renderMistakePracticeMode(allMistakes);
+    }
+
+    const cardsHtml = mistakeList
+      .map((m, idx) => {
+        const retryChoice = state.mistakeRetryChoices[m.id];
+        const isRetryCorrect = retryChoice !== undefined && retryChoice === m.answer;
+        const isRetryWrong = retryChoice !== undefined && retryChoice !== m.answer;
+        const isRevealed = state.mistakeRevealAll || !!state.mistakeManualReveal[m.id] || isRetryCorrect;
+
+        const optionsHtml = m.options
+          .map((opt, oIdx) => {
+            const parsed = parseOptionBubble(opt, oIdx);
+            let cls = "option-btn-modern";
+            let tag = "";
+
+            if (isRevealed) {
+              if (oIdx === m.answer) {
+                cls += " correct-ans";
+                tag = `<span style="margin-left:auto; font-size:0.75rem; font-weight:800; color:#047857;">✔ Đáp án đúng</span>`;
+              } else if (retryChoice === oIdx && retryChoice !== m.answer) {
+                cls += " wrong-ans";
+                tag = `<span style="margin-left:auto; font-size:0.75rem; font-weight:800; color:#B91C1C;">✘ Vừa chọn sai</span>`;
+              } else if (oIdx === m.wrongChoice) {
+                tag = `<span style="margin-left:auto; font-size:0.74rem; color:#94A3B8;">(Lần trước chọn nhầm)</span>`;
+              }
+            } else {
+              if (retryChoice === oIdx && isRetryWrong) {
+                cls += " wrong-ans";
+                tag = `<span style="margin-left:auto; font-size:0.75rem; font-weight:800; color:#B91C1C;">✘ Chưa đúng, thử lại nhé!</span>`;
+              } else if (oIdx === m.wrongChoice) {
+                tag = `<span style="margin-left:auto; font-size:0.74rem; color:#94A3B8;">(Lần trước em chọn)</span>`;
+              }
+            }
+
+            return `
+              <button class="${cls}" onclick="trySolveMistakeCard('${m.id}', ${oIdx})">
+                <span class="opt-letter-bubble">${parsed.letter}</span>
+                <span style="flex:1;">${parsed.content}</span>
+                ${tag}
+              </button>
+            `;
+          })
+          .join("");
+
+        return `
+          <div class="mistake-retry-card ${isRetryCorrect ? "solved-right" : ""}">
+            <div class="q-header" style="margin-bottom:12px;">
+              <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                <span class="q-num" style="background:${isRetryCorrect ? "#D1FAE5" : "#FEE2E2"}; color:${
+                  isRetryCorrect ? "#065F46" : "#DC2626"
+                };">
+                  ${isRetryCorrect ? "🎉 Đã gỡ thành công" : `Câu cần gỡ #${idx + 1}`}
+                </span>
+                <span style="font-size:0.78rem; font-weight:700; color:var(--text-muted); background:#F1F5F9; padding:3px 10px; border-radius:99px;">
+                  📌 Nguồn: ${m.source}
+                </span>
+              </div>
+
+              <div style="display:flex; align-items:center; gap:8px;">
+                ${
+                  !isRevealed
+                    ? `<button class="btn btn-outline btn-sm" onclick="toggleRevealSingleMistake('${m.id}')">👁️ Xem đáp án</button>`
+                    : ""
+                }
+                <button
+                  class="btn ${isRetryCorrect ? "btn-success" : "btn-outline"} btn-sm"
+                  onclick="removeMistakeItem('${m.id}')"
+                >
+                  ✔ Đã hiểu kỹ (Xóa khỏi sổ)
+                </button>
+              </div>
             </div>
-            <button class="btn btn-primary" style="background:#DC2626;" onclick="startMistakePractice()">
-              🔥 Làm bài ôn lại ${mistakeList.length} câu sai ngay
-            </button>
-          </div>
 
-          ${mistakeList
-            .map(
-              (m, idx) => `
-              <div class="question-card">
-                <div class="q-header">
-                  <span class="q-num" style="background:#FEE2E2; color:#DC2626;">Câu hay sai #${idx + 1} • Nguồn: ${m.source}</span>
-                  <button class="btn btn-outline btn-sm" onclick="removeMistakeItem('${m.id}')">✔ Đã hiểu kỹ (Xóa khỏi sổ tay)</button>
-                </div>
-                <div class="q-text">${m.question}</div>
-                <div class="options-list">
-                  ${m.options
-                    .map(
-                      (opt, oIdx) => `
-                      <div class="option-btn ${oIdx === m.answer ? "correct-ans" : oIdx === m.wrongChoice ? "wrong-ans" : ""}">
-                        ${opt} ${oIdx === m.answer ? " (Đáp án đúng)" : oIdx === m.wrongChoice ? " (Em đã chọn)" : ""}
-                      </div>
-                    `
-                    )
-                    .join("")}
-                </div>
-                <div class="explanation-box">
+            <div class="q-text">${m.question}</div>
+
+            <div style="font-size:0.8rem; color:#64748B; margin-bottom:10px; font-weight:600;">
+              ${
+                isRetryCorrect
+                  ? "✅ Chính xác! Em đã tự chọn đúng đáp án của câu này:"
+                  : "👆 Hãy tự suy nghĩ và bấm chọn lại đáp án A, B, C hoặc D bên dưới:"
+              }
+            </div>
+
+            <div class="options-list">
+              ${optionsHtml}
+            </div>
+
+            ${
+              isRevealed
+                ? `
+                <div class="explanation-box" style="margin-top:14px;">
                   <strong>💡 Giải thích cần nhớ:</strong> ${m.explanation}
                 </div>
-              </div>
-            `
-            )
-            .join("")}
+              `
+                : ""
+            }
+          </div>
         `;
+      })
+      .join("");
 
     return `
-      <div class="section-header">
-        <h2>📓 Sổ Tay Câu Hay Sai Của Em</h2>
+      <div style="background:linear-gradient(135deg, #991B1B 0%, #DC2626 100%); color:white; border-radius:20px; padding:22px 26px; margin-bottom:20px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:16px; box-shadow:0 10px 25px rgba(220,38,38,0.18);">
+        <div>
+          <span style="font-size:0.76rem; font-weight:800; background:rgba(255,255,255,0.18); padding:3px 10px; border-radius:99px; text-transform:uppercase;">
+            📓 SỔ TAY GỠ LỖI SAI THÔNG MINH
+          </span>
+          <h2 style="font-size:1.45rem; font-weight:900; margin:6px 0 4px;">
+            Em đang có ${allMistakes.length} câu cần ôn tập lại
+          </h2>
+          <p style="font-size:0.88rem; color:#FEE2E2;">
+            Đáp án đã được ẩn mặc định để em tự chọn lại ngay trên từng câu — hoặc bấm làm bài kiểm tra tổng hợp!
+          </p>
+        </div>
+        <button class="btn btn-white" style="color:#DC2626; font-weight:800;" onclick="startMistakePractice()">
+          🔥 Thi lại toàn bộ ${allMistakes.length} câu sai ➔
+        </button>
       </div>
-      ${mistakeSectionHtml}
+
+      <div class="mistake-toolbar">
+        <div class="vocab-status-tabs">
+          <button
+            class="vocab-status-tab ${state.mistakeFilter === "all" ? "active" : ""}"
+            onclick="setMistakeFilter('all')"
+          >
+            Tất cả (${allMistakes.length})
+          </button>
+          <button
+            class="vocab-status-tab ${state.mistakeFilter === "unit" ? "active" : ""}"
+            onclick="setMistakeFilter('unit')"
+          >
+            📚 Từ Bài tập Unit (${unitMistakesCount})
+          </button>
+          <button
+            class="vocab-status-tab ${state.mistakeFilter === "exam" ? "active" : ""}"
+            onclick="setMistakeFilter('exam')"
+          >
+            📝 Từ Đề thi (${examMistakesCount})
+          </button>
+        </div>
+
+        <button class="btn btn-outline btn-sm" onclick="toggleMistakeRevealAll()">
+          ${state.mistakeRevealAll ? "🙈 Ẩn lại đáp án để tự làm" : "👁️ Hiện toàn bộ đáp án & lời giải"}
+        </button>
+      </div>
+
+      ${cardsHtml}
     `;
   }
+
+  window.setMistakeFilter = function (f) {
+    state.mistakeFilter = f;
+    renderApp();
+  };
+
+  window.toggleMistakeRevealAll = function () {
+    state.mistakeRevealAll = !state.mistakeRevealAll;
+    renderApp();
+  };
+
+  window.toggleRevealSingleMistake = function (qId) {
+    state.mistakeManualReveal[qId] = !state.mistakeManualReveal[qId];
+    renderApp();
+  };
+
+  window.trySolveMistakeCard = function (qId, optIdx) {
+    state.mistakeRetryChoices[qId] = optIdx;
+    const item = state.mistakes[qId];
+    if (item && optIdx === item.answer) {
+      showToast("🎉 Chính xác! Em đã hiểu câu này, hãy đọc lại lời giải nhé!", "success");
+    }
+    renderApp();
+  };
 
   function renderMistakePracticeMode(mistakeList) {
     return `
@@ -2694,19 +3333,24 @@
   };
 
   window.clearSolvedMistakes = function () {
+    let removed = 0;
     Object.keys(state.mistakeAnswers).forEach((qId) => {
       if (state.mistakes[qId] && state.mistakeAnswers[qId] === state.mistakes[qId].answer) {
         delete state.mistakes[qId];
+        removed++;
       }
     });
     persistActiveStudentState();
     state.mistakePracticeActive = false;
+    showToast(`Đã xóa ${removed} câu làm đúng khỏi Sổ tay câu sai!`, "success");
     renderApp();
   };
 
   window.removeMistakeItem = function (qId) {
     delete state.mistakes[qId];
+    delete state.mistakeRetryChoices[qId];
     persistActiveStudentState();
+    showToast("Đã xóa câu hỏi khỏi Sổ tay câu sai!", "success");
     renderApp();
   };
 
@@ -3296,15 +3940,25 @@
       await window.EY8_Supabase.saveSystemStore(state.systemStore);
     }
     renderApp();
-    alert("✅ Đã giao bài tập thành công! Khi em mở web lên sẽ thấy ngay nhiệm vụ này.");
+    showToast("✅ Đã giao bài tập thành công! Khi em mở web lên sẽ thấy ngay nhiệm vụ này.", "success");
   };
 
-  window.handleAdminDeleteAssignment = async function (taskId) {
-    state.systemStore.assignments = (state.systemStore.assignments || []).filter((t) => t.id !== taskId);
-    if (window.EY8_Supabase) {
-      await window.EY8_Supabase.saveSystemStore(state.systemStore);
-    }
-    renderApp();
+  window.handleAdminDeleteAssignment = function (taskId) {
+    showConfirmDialog({
+      icon: "🗑️",
+      title: "Xóa nhiệm vụ đã giao?",
+      message: "Nhiệm vụ này sẽ được gỡ khỏi bảng nhiệm vụ của học sinh.",
+      confirmText: "Xóa nhiệm vụ",
+      danger: true,
+      onConfirm: async () => {
+        state.systemStore.assignments = (state.systemStore.assignments || []).filter((t) => t.id !== taskId);
+        if (window.EY8_Supabase) {
+          await window.EY8_Supabase.saveSystemStore(state.systemStore);
+        }
+        renderApp();
+        showToast("🗑️ Đã xóa nhiệm vụ giao bài.", "info");
+      }
+    });
   };
 
   // -------------------------------------------------------------------------
@@ -3541,18 +4195,28 @@
     }
 
     renderApp();
-    alert("✅ Đã thêm câu hỏi mới vào hệ thống và đồng bộ lên đám mây!");
+    showToast("✅ Đã thêm câu hỏi mới vào hệ thống và đồng bộ lên đám mây!", "success");
   };
 
-  window.handleAdminDeleteCustomQuestion = async function (qId) {
-    state.systemStore.customQuestions = (state.systemStore.customQuestions || []).filter(
-      (q) => q.id !== qId
-    );
-    applyCustomContentToStudyData();
-    if (window.EY8_Supabase) {
-      await window.EY8_Supabase.saveSystemStore(state.systemStore);
-    }
-    renderApp();
+  window.handleAdminDeleteCustomQuestion = function (qId) {
+    showConfirmDialog({
+      icon: "🗑️",
+      title: "Xóa câu hỏi bổ sung?",
+      message: "Câu hỏi này sẽ bị gỡ khỏi ngân hàng câu hỏi của hệ thống.",
+      confirmText: "Xóa câu hỏi",
+      danger: true,
+      onConfirm: async () => {
+        state.systemStore.customQuestions = (state.systemStore.customQuestions || []).filter(
+          (q) => q.id !== qId
+        );
+        applyCustomContentToStudyData();
+        if (window.EY8_Supabase) {
+          await window.EY8_Supabase.saveSystemStore(state.systemStore);
+        }
+        renderApp();
+        showToast("🗑️ Đã xóa câu hỏi bổ sung.", "info");
+      }
+    });
   };
 
   window.handleAdminCreateExam = async function () {
@@ -3593,7 +4257,7 @@
     }
 
     renderApp();
-    alert(`🎉 Đã tạo đề "${title}"! Bạn có thể thêm tiếp các câu hỏi vào đề này ở cột bên trái.`);
+    showToast(`🎉 Đã tạo đề "${title}"! Bạn có thể thêm tiếp câu hỏi ở cột bên trái.`, "success");
   };
 
   // -------------------------------------------------------------------------
@@ -3745,9 +4409,9 @@
 
     if (res.success) {
       await refreshAdminUsersList();
-      alert(`✅ Đã tạo tài khoản "${username}" (${role === "admin" ? "Admin" : "Học sinh"}) thành công!`);
+      showToast(`✅ Đã tạo tài khoản "${username}" (${role === "admin" ? "Admin" : "Học sinh"}) thành công!`, "success");
     } else {
-      alert("⚠️ " + (res.message || "Không thể tạo tài khoản!"));
+      showToast("⚠️ " + (res.message || "Không thể tạo tài khoản!"), "warning");
     }
   };
 
@@ -3755,39 +4419,50 @@
     const newPass = prompt(`Nhập mật khẩu / mã PIN mới cho tài khoản "${fullName}" (${username}):`);
     if (!newPass || !newPass.trim()) return;
     if (newPass.trim().length < 4) {
-      alert("Mật khẩu phải có ít nhất 4 ký tự!");
+      showToast("⚠️ Mật khẩu phải có ít nhất 4 ký tự!", "warning");
       return;
     }
     await window.EY8_Supabase.updateUserPasswordOrInfo(userId, username, {
       pinCode: newPass.trim()
     });
     await refreshAdminUsersList();
-    alert(`✅ Đã cập nhật mật khẩu mới cho "${username}" thành: ${newPass.trim()}`);
+    showToast(`🔑 Đã cập nhật mật khẩu mới cho "${username}" thành: ${newPass.trim()}`, "success");
   };
 
-  window.handleAdminResetStudentData = async function (username, userId) {
-    if (
-      !confirm(
-        `Bạn có chắc chắn muốn XÓA SẠCH lịch sử điểm và đặt lại tiến độ học của tài khoản "${username}" về 0 không?`
-      )
-    ) {
-      return;
-    }
-    await window.EY8_Supabase.resetStudentProgress(username, userId);
-    if (state.adminSelectedStudent === username) {
-      await loadAdminInspectedStudent(username);
-    }
-    alert(`✅ Đã đặt lại toàn bộ tiến độ học tập của "${username}" về ban đầu.`);
+  window.handleAdminResetStudentData = function (username, userId) {
+    showConfirmDialog({
+      icon: "🧹",
+      title: `Reset tiến độ của "${username}"?`,
+      message: `Bạn có chắc chắn muốn XÓA SẠCH lịch sử điểm và đặt lại toàn bộ tiến độ học của tài khoản "${username}" về 0 không?`,
+      confirmText: "Đồng ý Reset",
+      danger: true,
+      onConfirm: async () => {
+        await window.EY8_Supabase.resetStudentProgress(username, userId);
+        if (state.adminSelectedStudent === username) {
+          await loadAdminInspectedStudent(username);
+        }
+        showToast(`✅ Đã đặt lại toàn bộ tiến độ học tập của "${username}" về ban đầu.`, "success");
+      }
+    });
   };
 
-  window.handleAdminDeleteUser = async function (username) {
-    if (!confirm(`Bạn có chắc muốn xóa tài khoản "${username}" không?`)) return;
-    const res = await window.EY8_Supabase.deleteUserAccount(username);
-    if (!res.success) {
-      alert(res.message);
-      return;
-    }
-    await refreshAdminUsersList();
+  window.handleAdminDeleteUser = function (username) {
+    showConfirmDialog({
+      icon: "🗑️",
+      title: `Xóa tài khoản "${username}"?`,
+      message: `Tài khoản "${username}" sẽ bị xóa khỏi hệ thống.`,
+      confirmText: "Xóa tài khoản",
+      danger: true,
+      onConfirm: async () => {
+        const res = await window.EY8_Supabase.deleteUserAccount(username);
+        if (!res.success) {
+          showToast("⚠️ " + res.message, "warning");
+          return;
+        }
+        await refreshAdminUsersList();
+        showToast(`🗑️ Đã xóa tài khoản "${username}".`, "info");
+      }
+    });
   };
 
   // =========================================================================
@@ -3897,7 +4572,7 @@
 
   window.openSupabaseSettingsModal = function () {
     if (!window.EY8_Supabase || !window.EY8_Supabase.isAdmin()) {
-      alert("Chỉ tài khoản Quản trị viên (Admin) mới có quyền truy cập cấu hình hệ thống!");
+      showToast("⚠️ Chỉ tài khoản Quản trị viên (Admin) mới có quyền truy cập cấu hình hệ thống!", "warning");
       return;
     }
 
@@ -4042,6 +4717,49 @@
 
   window.addEventListener("popstate", handleBrowserNavigationChange);
   window.addEventListener("hashchange", handleBrowserNavigationChange);
+
+  // Phím tắt bàn phím cho Flashcard Studio (Space = Lật thẻ, ⬅/➡ = Chuyển từ, S = Nghe đọc, Enter = Thuộc từ)
+  window.addEventListener("keydown", (e) => {
+    const tag = (e.target && e.target.tagName ? e.target.tagName : "").toLowerCase();
+    if (tag === "input" || tag === "textarea" || tag === "select" || e.target?.isContentEditable) {
+      return;
+    }
+    const isAdmin = window.EY8_Supabase && window.EY8_Supabase.isAdmin();
+    if (isAdmin || state.activeTab !== "units" || state.unitSubTab !== "vocab") {
+      return;
+    }
+
+    const units = window.STUDY_DATA?.units || [];
+    const unit = units.find((u) => u.id === state.selectedUnitId) || units[0];
+    if (!unit) return;
+    const deck = getFlashcardDeck(unit);
+    if (!deck || deck.length === 0) return;
+
+    if (e.code === "Space") {
+      e.preventDefault();
+      window.flipFlashcard();
+    } else if (e.code === "ArrowRight") {
+      e.preventDefault();
+      window.moveFlashcard(1, deck.length);
+    } else if (e.code === "ArrowLeft") {
+      e.preventDefault();
+      window.moveFlashcard(-1, deck.length);
+    } else if (e.code === "KeyS") {
+      e.preventDefault();
+      const idx = Math.min(Math.max(0, state.flashcardIndex), deck.length - 1);
+      const currentVocab = deck[idx];
+      if (currentVocab && currentVocab.word) {
+        window.speakWord(currentVocab.word);
+      }
+    } else if (e.code === "Enter") {
+      e.preventDefault();
+      const idx = Math.min(Math.max(0, state.flashcardIndex), deck.length - 1);
+      const currentVocab = deck[idx];
+      if (currentVocab && !state.learnedVocab[currentVocab.id]) {
+        window.markFlashcardLearned(currentVocab.id);
+      }
+    }
+  });
 
   // Khởi tạo khi trang tải xong (giữ nguyên trang đang mở khi nhấn F5)
   window.addEventListener("DOMContentLoaded", async () => {
