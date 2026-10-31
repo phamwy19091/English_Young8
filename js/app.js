@@ -697,22 +697,25 @@
         logoEl.textContent = "👑";
         logoEl.style.background = "linear-gradient(135deg, #F59E0B, #D97706)";
       }
-      if (titleEl) titleEl.textContent = "English Young 8 • Admin Portal";
-      if (subEl) subEl.textContent = "Hệ thống Quản trị, Giao bài tập & Giám sát Học sinh";
+      if (titleEl) {
+        titleEl.innerHTML = `English Young 8 <span class="admin-role-badge" style="margin-left:4px; vertical-align:middle;">ADMIN PORTAL</span>`;
+      }
+      if (subEl) subEl.textContent = "Trung tâm Giám sát & Quản lý Học tập";
 
+      const assignCount = (state.systemStore.assignments || []).length;
       if (navTabsEl) {
         navTabsEl.innerHTML = `
           <button class="nav-tab ${state.adminTab === "admin-monitor" ? "active" : ""}" onclick="switchAdminTab('admin-monitor')">
             📊 Giám Sát Học Sinh
           </button>
           <button class="nav-tab ${state.adminTab === "admin-assignments" ? "active" : ""}" onclick="switchAdminTab('admin-assignments')">
-            🎯 Giao Bài Tập (${(state.systemStore.assignments || []).length})
+            🎯 Giao Bài Tập ${assignCount > 0 ? `<span class="badge-count" style="background:#F59E0B;">${assignCount}</span>` : `<span style="opacity:0.75;">(0)</span>`}
           </button>
           <button class="nav-tab ${state.adminTab === "admin-content" ? "active" : ""}" onclick="switchAdminTab('admin-content')">
-            🗂️ Quản Lý Đề & Câu Hỏi
+            🗂️ Ngân Hàng Đề
           </button>
           <button class="nav-tab ${state.adminTab === "admin-users" ? "active" : ""}" onclick="switchAdminTab('admin-users')">
-            👥 Tài Khoản & Hệ Thống
+            👥 Tài Khoản & Cloud
           </button>
         `;
       }
@@ -738,18 +741,19 @@
 
       if (userContainer) {
         userContainer.innerHTML = `
-          <div style="display:flex; align-items:center; gap:10px;">
-            <button class="btn btn-outline btn-sm" style="background:rgba(255,255,255,0.1); color:white; border-color:rgba(255,255,255,0.25);" onclick="toggleAdminStudentPreview(true)" title="Xem giao diện dưới góc nhìn của Học sinh">
-              👁️ Xem thử chế độ Học sinh
+          <div class="admin-header-actions">
+            <button class="admin-preview-btn" onclick="toggleAdminStudentPreview(true)" title="Chuyển sang xem giao diện dưới góc nhìn của Học sinh">
+              <span>👁️</span>
+              <span>Góc nhìn Học sinh</span>
             </button>
-            <div class="user-menu-pill" style="background:#1E293B; border-color:#334155; color:white;">
-              <div class="user-menu-avatar" style="background:#D97706;">👑</div>
-              <div>
-                <div style="font-weight:700; line-height:1.2; font-size:0.84rem; color:white;">${currentUser.fullName}</div>
-                <span class="user-role-tag admin">Quản trị viên</span>
+            <div class="admin-user-pill">
+              <div class="admin-user-avatar">👑</div>
+              <div class="admin-user-meta">
+                <span class="admin-user-name">${currentUser.fullName}</span>
+                <span class="admin-role-badge">Admin</span>
               </div>
-              <button class="btn-auth-action" style="color:#FCA5A5;" onclick="handleLogout()">
-                [Đăng xuất]
+              <button class="admin-logout-btn" onclick="handleLogout()" title="Đăng xuất">
+                Đăng xuất
               </button>
             </div>
           </div>
@@ -3516,17 +3520,27 @@
   // =========================================================================
   // =========================================================================
 
+  let adminAutoPickedOnce = false;
+
   async function refreshAdminUsersList() {
     if (!window.EY8_Supabase) return;
     state.allUsers = await window.EY8_Supabase.getAllUsers();
     const students = state.allUsers.filter((u) => u.role === "student");
-    if (students.length > 0 && !students.some((s) => s.username === state.adminSelectedStudent)) {
-      state.adminSelectedStudent = students[0].username;
+
+    if (students.length > 0) {
+      // Ưu tiên chọn tài khoản học sinh thực tế (khác em_lop8 mặc định) trong lần mở đầu tiên
+      const realStudents = students.filter((s) => s.username !== "em_lop8");
+      if (!adminAutoPickedOnce && realStudents.length > 0 && state.adminSelectedStudent === "em_lop8") {
+        state.adminSelectedStudent = realStudents[0].username;
+        adminAutoPickedOnce = true;
+      } else if (!students.some((s) => s.username === state.adminSelectedStudent)) {
+        state.adminSelectedStudent = (realStudents[0] || students[0]).username;
+      }
     }
     renderApp();
   }
 
-  async function loadAdminInspectedStudent(username) {
+  async function loadAdminInspectedStudent(username, showNotify = false) {
     if (!window.EY8_Supabase) return;
     state.adminSelectedStudent = username;
 
@@ -3594,20 +3608,42 @@
 
     state.inspectedStudentRecord = newRecord;
     renderApp();
+    if (showNotify) {
+      showToast(`🔄 Đã đồng bộ dữ liệu mới nhất của học sinh "${targetUser ? targetUser.fullName : username}"!`, "info");
+    }
   }
 
   window.handleAdminChangeStudent = function (username) {
-    loadAdminInspectedStudent(username);
+    loadAdminInspectedStudent(username, true);
+  };
+
+  window.handleAdminInspectFromUsersTab = function (username) {
+    state.adminTab = "admin-monitor";
+    syncUrlWithState(false);
+    loadAdminInspectedStudent(username, true);
+  };
+
+  window.handleQuickAssignFromMonitor = function (targetType, targetId, title, minScore = 8.0) {
+    state.adminPreselectAssignment = {
+      studentUsername: state.adminSelectedStudent,
+      targetValue: `${targetType}|${targetId}|${title}`,
+      minScore,
+      dueDate: "Trong ngày hôm nay",
+      note: `Em ôn kỹ và hoàn thành "${title}" đạt tối thiểu ${minScore} điểm nhé!`
+    };
+    switchAdminTab("admin-assignments");
+    showToast(`📌 Đã chọn sẵn "${title}". Bạn bấm nút Giao Nhiệm Vụ để xác nhận nhé!`, "info");
   };
 
   // -------------------------------------------------------------------------
-  // ADMIN TAB 1: GIÁM SÁT HỌC SINH (MONITORING & ANALYTICS)
+  // ADMIN TAB 1: GIÁM SÁT HỌC SINH (EXECUTIVE STUDENT INSPECTOR)
   // -------------------------------------------------------------------------
   function renderAdminMonitorView() {
     const students = state.allUsers.filter((u) => u.role === "student");
     const selectedStudentObj =
       students.find((s) => s.username === state.adminSelectedStudent) || {
-        fullName: "Em Lớp 8",
+        id: "",
+        fullName: "Học Sinh Lớp 8",
         username: "em_lop8"
       };
 
@@ -3617,61 +3653,170 @@
     const units = window.STUDY_DATA.units || [];
     const mistakeList = Object.values(rec.mistakes || {});
 
+    const vocabPct = Math.round((stats.learnedCount / (stats.totalVocab || 1)) * 100);
+    const completedUnitsCount = Object.keys(rec.unitScores || {}).length;
+    const unitPct = Math.round((completedUnitsCount / (units.length || 6)) * 100);
+    const numericAvg = stats.avgExamScore === "--" ? 0 : Number(stats.avgExamScore);
+    const scorePct = Math.min(100, Math.round(numericAvg * 10));
+
+    let scoreBadgeText = "Chưa có điểm";
+    let scoreBadgeBg = "#F1F5F9";
+    let scoreBadgeColor = "#64748B";
+    if (stats.avgExamScore !== "--") {
+      if (numericAvg >= 8) {
+        scoreBadgeText = "🌟 Đạt mục tiêu";
+        scoreBadgeBg = "#D1FAE5";
+        scoreBadgeColor = "#065F46";
+      } else if (numericAvg >= 6.5) {
+        scoreBadgeText = "👍 Khá";
+        scoreBadgeBg = "#FEF3C7";
+        scoreBadgeColor = "#92400E";
+      } else {
+        scoreBadgeText = "⚠️ Cần kèm sát";
+        scoreBadgeBg = "#FEE2E2";
+        scoreBadgeColor = "#991B1B";
+      }
+    }
+
+    const lastAttempt = rec.examHistory && rec.examHistory.length > 0 ? rec.examHistory[0] : null;
+
     return `
-      <!-- Thanh chọn Học sinh để giám sát -->
-      <div class="admin-control-bar">
-        <div style="display:flex; align-items:center; gap:14px; flex-wrap:wrap;">
-          <span style="font-weight:800; color:var(--text-main);">🎓 Học sinh đang giám sát:</span>
-          <select class="form-control-select" style="width:auto; min-width:240px; font-weight:700;" onchange="handleAdminChangeStudent(this.value)">
-            ${students
-              .map(
-                (s) => `
-                <option value="${s.username}" ${s.username === state.adminSelectedStudent ? "selected" : ""}>
-                  ${s.fullName} (username: ${s.username})
-                </option>
-              `
-              )
-              .join("")}
-          </select>
+      <!-- Thanh Chuyển Đổi Nhanh Học Sinh 1 Chạm -->
+      <div class="admin-student-switcher-bar">
+        <div class="admin-student-pills-wrap">
+          <span style="font-size:0.82rem; font-weight:800; color:var(--text-muted); margin-right:4px;">
+            👨‍🎓 Chọn tài khoản Học sinh (${students.length}):
+          </span>
+          ${students
+            .map((s) => {
+              const isSelected = s.username === state.adminSelectedStudent;
+              return `
+                <button class="admin-student-pill ${isSelected ? "active" : ""}" onclick="handleAdminChangeStudent('${s.username}')">
+                  <span class="stu-dot"></span>
+                  <span>${s.fullName}</span>
+                  <span style="opacity:0.75; font-weight:600; font-size:0.76rem;">(@${s.username})</span>
+                </button>
+              `;
+            })
+            .join("")}
         </div>
-        <div style="display:flex; gap:10px; flex-wrap:wrap;">
-          <button class="btn btn-outline btn-sm" onclick="loadAdminInspectedStudent('${state.adminSelectedStudent}')">
-            🔄 Cập nhật tiến độ mới nhất từ máy của em
-          </button>
-          <button class="btn btn-primary btn-sm" onclick="switchAdminTab('admin-assignments')">
-            🎯 Giao bài tập mới cho ${selectedStudentObj.fullName}
+        <div style="display:flex; align-items:center; gap:8px;">
+          <button class="btn btn-outline btn-sm" style="font-size:0.78rem; padding:6px 12px;" onclick="switchAdminTab('admin-users')">
+            ➕ Quản lý / Thêm tài khoản
           </button>
         </div>
       </div>
 
-      <!-- 4 KPI Giám sát Học sinh -->
-      <div class="kpi-grid">
-        <div class="kpi-card">
-          <div class="kpi-icon" style="background:#EEF2FF; color:#4F46E5;">🎯</div>
+      <!-- Banner Trung Tâm Chỉ Huy Học Sinh Đang Giám Sát -->
+      <div class="admin-hero-inspector">
+        <div class="admin-hero-left">
+          <div class="admin-hero-avatar">🎓</div>
           <div>
-            <div class="kpi-val">${stats.avgExamScore} <span style="font-size:0.9rem; font-weight:600; color:var(--text-muted);">/10</span></div>
-            <div class="kpi-label">Điểm trung bình các lần thi</div>
+            <div class="admin-hero-badge-row">
+              <span class="admin-cloud-live-tag">● Cloud Sync Thời Gian Thực</span>
+              <span style="font-size:0.76rem; color:#A5B4FC; font-weight:700;">Username: @${selectedStudentObj.username}</span>
+            </div>
+            <div class="admin-hero-title">${selectedStudentObj.fullName}</div>
+            <div class="admin-hero-sub">
+              ${
+                lastAttempt
+                  ? `🕒 Lần nộp bài gần nhất: <strong>${lastAttempt.examTitle}</strong> (${lastAttempt.score10}/10 điểm • ${lastAttempt.date})`
+                  : `📭 Chưa có lượt nộp đề kiểm tra nào • Đã thuộc <strong>${stats.learnedCount}/${stats.totalVocab}</strong> từ vựng HK1`
+              }
+            </div>
           </div>
         </div>
-        <div class="kpi-card">
-          <div class="kpi-icon" style="background:#ECFDF5; color:#10B981;">📝</div>
+
+        <div class="admin-hero-actions">
+          <button class="btn-admin-glass" onclick="loadAdminInspectedStudent('${state.adminSelectedStudent}', true)">
+            🔄 Đồng bộ mới nhất
+          </button>
+          <button class="btn-admin-glass" onclick="openAdminPasswordModal('${selectedStudentObj.id || ""}', '${selectedStudentObj.username}', '${selectedStudentObj.fullName}')">
+            🔑 Đổi mật khẩu
+          </button>
+          <button class="btn-admin-gold" onclick="switchAdminTab('admin-assignments')">
+            🎯 Giao bài tập cho ${selectedStudentObj.fullName}
+          </button>
+        </div>
+      </div>
+
+      <!-- 4 Thẻ KPI Quản Trị Có Thanh Tiến Độ -->
+      <div class="admin-kpi-grid">
+        <div class="admin-kpi-card">
+          <div class="admin-kpi-top">
+            <div>
+              <div class="admin-kpi-value">${stats.avgExamScore} <span style="font-size:0.9rem; font-weight:600; color:var(--text-muted);">/10</span></div>
+              <div class="admin-kpi-title">Điểm trung bình các lần thi</div>
+            </div>
+            <div class="admin-kpi-icon" style="background:#EEF2FF; color:#4F46E5;">🎯</div>
+          </div>
           <div>
-            <div class="kpi-val">${rec.examHistory.length} bài</div>
-            <div class="kpi-label">Tổng số lượt nộp bài</div>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+              <span class="admin-kpi-tag" style="background:${scoreBadgeBg}; color:${scoreBadgeColor};">${scoreBadgeText}</span>
+              <span style="font-size:0.75rem; font-weight:700; color:var(--text-muted);">Mục tiêu: ≥ 8.0</span>
+            </div>
+            <div class="admin-kpi-bar">
+              <div class="admin-kpi-bar-fill" style="width:${scorePct}%; background:#4F46E5;"></div>
+            </div>
           </div>
         </div>
-        <div class="kpi-card">
-          <div class="kpi-icon" style="background:#FEF3C7; color:#D97706;">📖</div>
+
+        <div class="admin-kpi-card">
+          <div class="admin-kpi-top">
+            <div>
+              <div class="admin-kpi-value">${rec.examHistory.length} <span style="font-size:0.95rem; font-weight:700; color:var(--text-muted);">lượt thi</span></div>
+              <div class="admin-kpi-title">Đã làm ${completedUnitsCount}/${units.length} bài tập Unit</div>
+            </div>
+            <div class="admin-kpi-icon" style="background:#ECFDF5; color:#10B981;">📝</div>
+          </div>
           <div>
-            <div class="kpi-val">${stats.learnedCount} / ${stats.totalVocab}</div>
-            <div class="kpi-label">Từ vựng đã thuộc (${Math.round((stats.learnedCount / (stats.totalVocab || 1)) * 100)}%)</div>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+              <span class="admin-kpi-tag" style="background:#ECFDF5; color:#065F46;">Hoàn thành ${unitPct}% Unit</span>
+              <span style="font-size:0.75rem; font-weight:700; color:var(--text-muted);">${completedUnitsCount}/6 Unit</span>
+            </div>
+            <div class="admin-kpi-bar">
+              <div class="admin-kpi-bar-fill" style="width:${unitPct}%; background:#10B981;"></div>
+            </div>
           </div>
         </div>
-        <div class="kpi-card">
-          <div class="kpi-icon" style="background:#FEE2E2; color:#EF4444;">⚠️</div>
+
+        <div class="admin-kpi-card">
+          <div class="admin-kpi-top">
+            <div>
+              <div class="admin-kpi-value">${stats.learnedCount} <span style="font-size:0.95rem; font-weight:700; color:var(--text-muted);">/ ${stats.totalVocab} từ</span></div>
+              <div class="admin-kpi-title">Từ vựng Học kì 1 đã thuộc</div>
+            </div>
+            <div class="admin-kpi-icon" style="background:#FEF3C7; color:#D97706;">📖</div>
+          </div>
           <div>
-            <div class="kpi-val">${stats.mistakeCount} câu</div>
-            <div class="kpi-label">Đang làm sai chưa khắc phục</div>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+              <span class="admin-kpi-tag" style="background:#FEF3C7; color:#92400E;">Đạt ${vocabPct}% kho từ</span>
+              <span style="font-size:0.75rem; font-weight:700; color:var(--text-muted);">Còn ${Math.max(0, stats.totalVocab - stats.learnedCount)} từ</span>
+            </div>
+            <div class="admin-kpi-bar">
+              <div class="admin-kpi-bar-fill" style="width:${vocabPct}%; background:#F59E0B;"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="admin-kpi-card">
+          <div class="admin-kpi-top">
+            <div>
+              <div class="admin-kpi-value" style="color:${stats.mistakeCount > 0 ? "#DC2626" : "#10B981"};">${stats.mistakeCount} <span style="font-size:0.95rem; font-weight:700; color:var(--text-muted);">câu sai</span></div>
+              <div class="admin-kpi-title">Đang lưu trong Sổ tay câu sai</div>
+            </div>
+            <div class="admin-kpi-icon" style="background:#FEE2E2; color:#EF4444;">⚠️</div>
+          </div>
+          <div>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+              <span class="admin-kpi-tag" style="background:${stats.mistakeCount > 0 ? "#FEE2E2" : "#D1FAE5"}; color:${stats.mistakeCount > 0 ? "#991B1B" : "#065F46"};">
+                ${stats.mistakeCount > 0 ? "Cần nhắc em ôn lại" : "✔ Không tồn đọng"}
+              </span>
+              <span style="font-size:0.75rem; font-weight:700; color:var(--text-muted);">Tự động lọc</span>
+            </div>
+            <div class="admin-kpi-bar">
+              <div class="admin-kpi-bar-fill" style="width:${stats.mistakeCount > 0 ? Math.min(100, stats.mistakeCount * 5) : 0}%; background:#EF4444;"></div>
+            </div>
           </div>
         </div>
       </div>
@@ -3680,52 +3825,64 @@
         <!-- Cột 1: Chẩn đoán lỗ hổng kiến thức 5 kỹ năng -->
         <div class="analytics-box">
           <div class="analytics-box-title">
-            <span>🩺 Chẩn Đoán Năng Lực & Lỗ Hổng Kiến Thức</span>
-            <span style="font-size:0.78rem; color:var(--text-muted);">${selectedStudentObj.fullName}</span>
+            <span>🩺 Chẩn Đoán Năng Lực 5 Kỹ Năng Tiếng Anh 8</span>
+            <span style="font-size:0.78rem; color:var(--text-muted); font-weight:700;">${selectedStudentObj.fullName}</span>
           </div>
 
           ${
             rec.examHistory.length === 0
               ? `
-                <div style="text-align:center; padding:32px 12px; color:var(--text-muted);">
-                  <div style="font-size:2.2rem; margin-bottom:8px;">📭</div>
-                  <p>Học sinh <strong>${selectedStudentObj.fullName}</strong> chưa nộp bài kiểm tra nào.<br>Bạn hãy vào mục <strong>"Giao Bài Tập"</strong> để giao đề cho em làm nhé!</p>
+                <div style="padding:14px 16px; border-radius:12px; background:#EEF2FF; border:1px solid #C7D2FE; margin-bottom:16px; display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+                  <div style="font-size:0.84rem; color:#1E1B4B;">
+                    💡 <strong>${selectedStudentObj.fullName}</strong> chưa nộp đề thi nào nên các chỉ số kỹ năng đang ở mức <strong>0%</strong>. Hãy giao 1 đề 15 phút để hệ thống phân tích năng lực!
+                  </div>
+                  <button class="btn btn-primary btn-sm" style="white-space:nowrap;" onclick="handleQuickAssignFromMonitor('exam', 'exam_15m_1', 'Đề kiểm tra 15 phút số 1 (Unit 1 & Unit 2)', 8.0)">
+                    ⚡ Giao Đề 15 Phút Số 1
+                  </button>
                 </div>
               `
-              : Object.keys(skills)
-                  .map((k) => {
-                    const sk = skills[k];
-                    const pct = sk.total > 0 ? Math.round((sk.correct / sk.total) * 100) : 0;
-                    let color = "#10B981";
-                    let statusLabel = "🟢 Nắm vững";
-                    if (pct < 60) {
-                      color = "#EF4444";
-                      statusLabel = "🔴 Hổng kiến thức (Cần kèm thêm)";
-                    } else if (pct < 80) {
-                      color = "#F59E0B";
-                      statusLabel = "🟡 Khá (Hay nhầm câu bẫy)";
-                    }
-
-                    return `
-                      <div class="skill-bar-row">
-                        <div class="skill-bar-meta">
-                          <span>${sk.icon} ${sk.name}</span>
-                          <span><strong>${pct}%</strong> (${sk.correct}/${sk.total} câu) • ${statusLabel}</span>
-                        </div>
-                        <div class="skill-bar-track">
-                          <div class="skill-bar-fill" style="width: ${pct}%; background: ${color}"></div>
-                        </div>
-                      </div>
-                    `;
-                  })
-                  .join("")
+              : ""
           }
+
+          ${Object.keys(skills)
+            .map((k) => {
+              const sk = skills[k];
+              const pct = sk.total > 0 ? Math.round((sk.correct / sk.total) * 100) : 0;
+              let color = "#94A3B8";
+              let statusLabel = "⚪ Chưa có dữ liệu";
+              if (sk.total > 0) {
+                if (pct >= 80) {
+                  color = "#10B981";
+                  statusLabel = "🟢 Nắm vững";
+                } else if (pct >= 60) {
+                  color = "#F59E0B";
+                  statusLabel = "🟡 Khá (Hay nhầm câu bẫy)";
+                } else {
+                  color = "#EF4444";
+                  statusLabel = "🔴 Hổng kiến thức (Cần kèm thêm)";
+                }
+              }
+
+              return `
+                <div class="skill-bar-row" style="margin-bottom:14px;">
+                  <div class="skill-bar-meta">
+                    <span style="font-weight:700;">${sk.icon} ${sk.name}</span>
+                    <span style="font-size:0.8rem;"><strong>${pct}%</strong> (${sk.correct}/${sk.total} câu) • ${statusLabel}</span>
+                  </div>
+                  <div class="skill-bar-track">
+                    <div class="skill-bar-fill" style="width: ${pct}%; background: ${color}"></div>
+                  </div>
+                </div>
+              `;
+            })
+            .join("")}
         </div>
 
-        <!-- Cột 2: Kiểm tra tiến độ từng Unit của Học sinh -->
+        <!-- Cột 2: Kiểm tra tiến độ từng Unit của Học sinh kèm nút Giao Nhanh -->
         <div class="analytics-box">
           <div class="analytics-box-title">
-            <span>📚 Tiến Độ Từng Unit Của ${selectedStudentObj.fullName}</span>
+            <span>📚 Tiến Độ Từng Unit (Unit 1 – Unit 6)</span>
+            <span style="font-size:0.76rem; color:var(--text-muted);">Bấm "📌 Giao Unit" để yêu cầu em học</span>
           </div>
           <div style="display:flex; flex-direction:column; gap:10px;">
             ${units
@@ -3734,16 +3891,31 @@
                 const learnedV = u.vocabulary.filter((v) => rec.learnedVocab[v.id]).length;
                 const pct = Math.round((learnedV / totalV) * 100);
                 const bestScore = rec.unitScores[u.id];
+                const barColor = pct === 100 ? "#10B981" : pct > 0 ? "#4F46E5" : "#CBD5E1";
 
                 return `
-                  <div style="padding:10px 14px; border:1px solid var(--border); border-radius:10px; display:flex; align-items:center; justify-content:space-between; gap:10px;">
-                    <div>
-                      <div style="font-weight:700; font-size:0.9rem;">${u.icon} Unit ${u.number}: ${u.title}</div>
-                      <div style="font-size:0.8rem; color:var(--text-muted);">
-                        Thuộc từ: <strong>${learnedV}/${totalV} từ (${pct}%)</strong> • Bài tập Unit: <strong style="color:${bestScore !== undefined ? "var(--success)" : "var(--danger)"};">${bestScore !== undefined ? bestScore + "/" + u.practice.length + " câu" : "Chưa làm"}</strong>
+                  <div class="admin-unit-row-card">
+                    <div class="admin-unit-row-top">
+                      <div style="font-weight:800; font-size:0.9rem; color:var(--text-main);">
+                        ${u.icon} Unit ${u.number}: ${u.title}
+                        <span style="font-weight:600; font-size:0.78rem; color:var(--text-muted);">(${u.viTitle})</span>
                       </div>
+                      <button class="btn btn-outline btn-sm" style="padding:3px 9px; font-size:0.74rem; white-space:nowrap;" onclick="handleQuickAssignFromMonitor('unit', '${u.id}', 'Ôn tập & Làm bài tập Unit ${u.number}: ${u.title}', 8.0)">
+                        📌 Giao Unit ${u.number}
+                      </button>
                     </div>
-                    <span style="font-weight:800; font-size:0.82rem; color:${pct === 100 ? "var(--success)" : "var(--primary)"};">${pct}%</span>
+                    <div class="admin-unit-mini-bar">
+                      <div class="admin-unit-mini-fill" style="width:${pct}%; background:${barColor};"></div>
+                    </div>
+                    <div class="admin-unit-row-meta">
+                      <span>📖 Từ vựng: <strong style="color:var(--text-main);">${learnedV}/${totalV} từ (${pct}%)</strong></span>
+                      <span>
+                        ✍️ Bài tập Unit:
+                        <strong style="color:${bestScore !== undefined ? "#059669" : "#DC2626"};">
+                          ${bestScore !== undefined ? `Đã làm (${bestScore}/${u.practice.length} câu)` : "Chưa làm"}
+                        </strong>
+                      </span>
+                    </div>
                   </div>
                 `;
               })
@@ -3756,7 +3928,7 @@
       <div class="analytics-box" style="margin-bottom:24px;">
         <div class="analytics-box-title">
           <span>🔍 Nhật Ký Nộp Bài & Soi Chi Tiết Bài Làm Của ${selectedStudentObj.fullName}</span>
-          <span style="font-size:0.82rem; color:var(--text-muted);">Kiểm tra thời gian làm bài thực tế và từng câu trả lời</span>
+          <span style="font-size:0.82rem; color:var(--text-muted);">Kiểm tra thời gian làm bài thực tế và từng phương án em đã chọn</span>
         </div>
         ${renderHistoryTableHtml(rec.examHistory, true)}
       </div>
@@ -3765,10 +3937,15 @@
       <div class="analytics-box">
         <div class="analytics-box-title">
           <span>⚠️ Các Câu ${selectedStudentObj.fullName} Đang Làm Sai (${mistakeList.length} câu)</span>
+          ${
+            mistakeList.length > 0
+              ? `<span style="font-size:0.78rem; color:#DC2626; font-weight:700;">Hệ thống đã tự động đưa vào Sổ Tay Câu Sai của em</span>`
+              : ""
+          }
         </div>
         ${
           mistakeList.length === 0
-            ? `<p style="color:var(--text-muted); text-align:center; padding:18px 0;">Hiện không có câu làm sai nào tồn đọng.</p>`
+            ? `<p style="color:var(--text-muted); text-align:center; padding:18px 0;">🎉 Hiện không có câu làm sai nào tồn đọng của <strong>${selectedStudentObj.fullName}</strong>.</p>`
             : `
               <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(320px, 1fr)); gap:12px;">
                 ${mistakeList
@@ -3776,9 +3953,9 @@
                   .map(
                     (m) => `
                     <div style="padding:12px 14px; border:1px solid #FECACA; background:#FEF2F2; border-radius:10px; font-size:0.86rem;">
-                      <div style="font-size:0.75rem; font-weight:700; color:#DC2626; margin-bottom:4px;">Nguồn: ${m.source}</div>
-                      <div style="font-weight:700; margin-bottom:6px;">${m.question}</div>
-                      <div style="color:#065F46; font-weight:600;">✔ Đáp án đúng: ${(m.options && m.options[m.answer]) || ""}</div>
+                      <div style="font-size:0.75rem; font-weight:700; color:#DC2626; margin-bottom:4px;">📌 Nguồn: ${m.source}</div>
+                      <div style="font-weight:700; margin-bottom:6px; color:var(--text-main);">${m.question}</div>
+                      <div style="color:#065F46; font-weight:700;">✔ Đáp án đúng: ${(m.options && m.options[m.answer]) || ""}</div>
                     </div>
                   `
                   )
@@ -3791,57 +3968,92 @@
   }
 
   // -------------------------------------------------------------------------
-  // ADMIN TAB 2: GIAO BÀI TẬP CHO EM (ASSIGNMENT MANAGER)
+  // ADMIN TAB 2: GIAO BÀI TẬP CHO EM (ASSIGNMENT STUDIO + 1-CLICK PRESETS)
   // -------------------------------------------------------------------------
   function renderAdminAssignmentsView() {
     const students = state.allUsers.filter((u) => u.role === "student");
     const units = window.STUDY_DATA.units || [];
     const exams = window.STUDY_DATA.exams || [];
     const assignments = state.systemStore.assignments || [];
+    const pre = state.adminPreselectAssignment || null;
+
+    const selectedStu = pre ? pre.studentUsername : state.adminSelectedStudent;
+    const selectedTarget = pre ? pre.targetValue : "";
+    const defaultMinScore = pre ? pre.minScore : 8.0;
+    const defaultDue = pre ? pre.dueDate : "Tối nay trước 21h00";
+    const defaultNote = pre ? pre.note : "";
 
     return `
       <div class="section-header">
         <div>
           <h2>🎯 Giao Bài Tập & Nhiệm Vụ Bắt Buộc Cho Học Sinh</h2>
-          <p style="font-size:0.9rem; color:var(--text-muted);">Bài tập bạn giao tại đây sẽ hiển thị nổi bật ngay đầu trang "Bàn Học Của Em" khi em đăng nhập.</p>
+          <p style="font-size:0.9rem; color:var(--text-muted);">Bài tập bạn giao tại đây sẽ hiển thị nổi bật ngay đầu trang <strong>"🏠 Bàn Học Của Em"</strong> kèm trạng thái tự động kiểm tra điểm số.</p>
         </div>
       </div>
 
       <div class="analytics-two-col">
-        <!-- Form tạo nhiệm vụ mới -->
+        <!-- Form tạo nhiệm vụ mới + Mẫu giao bài 1 chạm -->
         <div class="analytics-box">
           <div class="analytics-box-title">
             <span>➕ Tạo Nhiệm Vụ Giao Bài Mới</span>
+            <span style="font-size:0.75rem; color:var(--primary); font-weight:700;">Đồng bộ Cloud tức thì</span>
+          </div>
+
+          <div style="margin-bottom:14px;">
+            <div style="font-size:0.78rem; font-weight:800; color:var(--text-muted); margin-bottom:6px;">
+              ⚡ MẪU GIAO BÀI NHANH 1 CHẠM (Bấm để điền tự động):
+            </div>
+            <div class="admin-preset-grid">
+              <button type="button" class="admin-preset-chip" onclick="applyAssignmentPreset('exam|exam_15m_1|Đề kiểm tra 15 phút số 1 (Unit 1 & Unit 2)', 8.0, 'Tối nay trước 21h00', 'Em làm đề 15 phút số 1 cẩn thận, đọc kỹ giải thích câu sai nhé!')">
+                <span>⚡</span>
+                <span>Đề 15 Phút Số 1 (≥ 8.0đ)</span>
+              </button>
+              <button type="button" class="admin-preset-chip" onclick="applyAssignmentPreset('exam|exam_midterm_1|Đề thi Giữa Học kì 1 - Đề chuẩn số 1', 8.0, 'Cuối tuần này', 'Em canh đúng 45 phút làm nghiêm túc Đề Giữa Kì 1 nhé!')">
+                <span>🔥</span>
+                <span>Đề Giữa Kì 1 Số 1 (≥ 8.0đ)</span>
+              </button>
+              <button type="button" class="admin-preset-chip" onclick="applyAssignmentPreset('exam|exam_final_1|Đề thi Học kì 1 - Đề tổng hợp số 1', 8.5, 'Chủ nhật tuần này', 'Đề tổng hợp toàn bộ HK1, em cố gắng đạt trên 8.5 điểm nhé!')">
+                <span>🏆</span>
+                <span>Đề Thi Cuối Kì 1 (≥ 8.5đ)</span>
+              </button>
+              <button type="button" class="admin-preset-chip" onclick="applyAssignmentPreset('unit|unit1|Ôn tập & Làm bài tập Unit 1: Leisure Time', 8.0, 'Trong ngày hôm nay', 'Em học thuộc hết Flashcard từ vựng rồi làm bài tập Unit 1 nhé!')">
+                <span>📚</span>
+                <span>Từ vựng & Bài tập Unit 1</span>
+              </button>
+            </div>
           </div>
 
           <form onsubmit="event.preventDefault(); handleAdminCreateAssignment();">
             <div class="form-field">
-              <label>Giao cho Học sinh</label>
+              <label>1. Giao cho Học sinh nào?</label>
               <select id="assign-student" class="form-control-select">
-                <option value="all">👨‍🎓 Tất cả học sinh</option>
+                <option value="all">👨‍🎓 Tất cả học sinh trên hệ thống</option>
                 ${students
                   .map(
                     (s) =>
-                      `<option value="${s.username}" ${s.username === state.adminSelectedStudent ? "selected" : ""}>${s.fullName} (${s.username})</option>`
+                      `<option value="${s.username}" ${s.username === selectedStu ? "selected" : ""}>🎓 ${s.fullName} (@${s.username})</option>`
                   )
                   .join("")}
               </select>
             </div>
 
             <div class="form-field">
-              <label>Chọn Đề thi hoặc Unit yêu cầu làm</label>
+              <label>2. Chọn Đề thi hoặc Unit yêu cầu hoàn thành</label>
               <select id="assign-target" class="form-control-select" required>
                 <optgroup label="📝 Các Đề Kiểm Tra (15 Phút, Giữa Kì, Cuối Kì)">
                   ${exams
-                    .map((ex) => `<option value="exam|${ex.id}|${ex.title}">📝 ${ex.title}</option>`)
+                    .map((ex) => {
+                      const val = `exam|${ex.id}|${ex.title}`;
+                      return `<option value="${val}" ${val === selectedTarget ? "selected" : ""}>📝 ${ex.title}</option>`;
+                    })
                     .join("")}
                 </optgroup>
                 <optgroup label="📚 Học Từ Vựng & Làm Bài Tập Unit (1–6)">
                   ${units
-                    .map(
-                      (u) =>
-                        `<option value="unit|${u.id}|Ôn tập & Làm bài tập Unit ${u.number}: ${u.title}">📚 Unit ${u.number}: ${u.title} (${u.viTitle})</option>`
-                    )
+                    .map((u) => {
+                      const val = `unit|${u.id}|Ôn tập & Làm bài tập Unit ${u.number}: ${u.title}`;
+                      return `<option value="${val}" ${val === selectedTarget ? "selected" : ""}>📚 Unit ${u.number}: ${u.title} (${u.viTitle})</option>`;
+                    })
                     .join("")}
                 </optgroup>
               </select>
@@ -3849,21 +4061,21 @@
 
             <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px;">
               <div class="form-field">
-                <label>Điểm mục tiêu cần đạt (Thang 10)</label>
-                <input id="assign-minscore" type="number" step="0.5" min="5" max="10" value="8.0" class="form-control-input" required />
+                <label>3. Điểm mục tiêu cần đạt (Thang 10)</label>
+                <input id="assign-minscore" type="number" step="0.5" min="5" max="10" value="${defaultMinScore}" class="form-control-input" required />
               </div>
               <div class="form-field">
-                <label>Hạn hoàn thành</label>
-                <input id="assign-duedate" type="text" placeholder="Ví dụ: Tối nay 21h / Chủ nhật" value="Trong ngày hôm nay" class="form-control-input" required />
+                <label>4. Hạn hoàn thành</label>
+                <input id="assign-duedate" type="text" placeholder="Ví dụ: Tối nay 21h / Chủ nhật" value="${defaultDue}" class="form-control-input" required />
               </div>
             </div>
 
             <div class="form-field">
-              <label>Lời nhắn / Dặn dò của Anh/Chị</label>
-              <input id="assign-note" type="text" placeholder="Ví dụ: Em làm cẩn thận không khoanh vội nhé, tối anh kiểm tra!" class="form-control-input" />
+              <label>5. Lời nhắn / Dặn dò của Anh/Chị</label>
+              <input id="assign-note" type="text" value="${defaultNote}" placeholder="Ví dụ: Em làm cẩn thận không khoanh vội nhé, tối anh kiểm tra!" class="form-control-input" />
             </div>
 
-            <button type="submit" class="btn btn-primary" style="width:100%; padding:12px;">
+            <button type="submit" class="btn btn-primary" style="width:100%; padding:13px; font-size:0.95rem;">
               📌 Giao Nhiệm Vụ Này Cho Em Ngay
             </button>
           </form>
@@ -3873,32 +4085,47 @@
         <div class="analytics-box">
           <div class="analytics-box-title">
             <span>📋 Danh Sách Nhiệm Vụ Đã Giao (${assignments.length})</span>
+            <span style="font-size:0.78rem; color:var(--text-muted);">Đánh giá theo: <strong>${state.adminSelectedStudent}</strong></span>
           </div>
 
           ${
             assignments.length === 0
-              ? `<p style="color:var(--text-muted); text-align:center; padding:32px 0;">Bạn chưa giao nhiệm vụ nào. Hãy tạo nhiệm vụ ở cột bên trái nhé!</p>`
+              ? `
+                <div style="text-align:center; padding:42px 16px; color:var(--text-muted);">
+                  <div style="font-size:2.4rem; margin-bottom:10px;">📋</div>
+                  <div style="font-weight:800; color:var(--text-main); margin-bottom:4px;">Chưa có nhiệm vụ nào được giao</div>
+                  <p style="font-size:0.86rem;">Hãy bấm vào 1 trong 4 <strong>Mẫu giao bài nhanh</strong> ở cột bên trái để giao bài tập đầu tiên cho em nhé!</p>
+                </div>
+              `
               : `
                 <div style="display:flex; flex-direction:column; gap:12px;">
                   ${assignments
                     .map((task) => {
                       const evalRes = evaluateAssignmentStatus(task, state.inspectedStudentRecord);
+                      const stuLabel =
+                        task.studentUsername === "all"
+                          ? "👨‍🎓 Tất cả học sinh"
+                          : `🎓 @${task.studentUsername}`;
                       return `
-                        <div style="padding:14px; border:1px solid ${evalRes.isCompleted ? "#A7F3D0" : "var(--border)"}; background:${evalRes.isCompleted ? "#F0FDF4" : "#F8FAFC"}; border-radius:12px;">
-                          <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px; margin-bottom:6px;">
-                            <div>
-                              <span style="font-size:0.72rem; font-weight:800; padding:2px 8px; border-radius:99px; background:${evalRes.isCompleted ? "#10B981" : "#F59E0B"}; color:white;">
-                                ${evalRes.isCompleted ? "✅ ĐÃ HOÀN THÀNH" : "⏳ CHƯA HOÀN THÀNH"}
+                        <div style="padding:15px 16px; border:1.5px solid ${evalRes.isCompleted ? "#A7F3D0" : "#E2E8F0"}; background:${evalRes.isCompleted ? "#F0FDF4" : "#FFFFFF"}; border-radius:14px; box-shadow:var(--shadow-sm);">
+                          <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px; margin-bottom:8px; flex-wrap:wrap;">
+                            <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+                              <span style="font-size:0.72rem; font-weight:800; padding:3px 9px; border-radius:99px; background:${evalRes.isCompleted ? "#10B981" : "#F59E0B"}; color:white;">
+                                ${evalRes.isCompleted ? "✅ ĐÃ HOÀN THÀNH" : "⏳ ĐANG CHỜ EM LÀM"}
                               </span>
-                              <span style="font-size:0.78rem; color:var(--text-muted); margin-left:6px;">Giao ngày ${task.createdAt} • Hạn: ${task.dueDate}</span>
+                              <span style="font-size:0.74rem; font-weight:700; padding:2px 8px; border-radius:99px; background:#EEF2FF; color:#3730A3;">
+                                ${stuLabel}
+                              </span>
+                              <span style="font-size:0.76rem; color:var(--text-muted);">⏰ Hạn: <strong>${task.dueDate}</strong></span>
                             </div>
-                            <button class="btn btn-outline btn-sm" style="color:var(--danger); padding:2px 8px;" onclick="handleAdminDeleteAssignment('${task.id}')">Xóa</button>
+                            <button class="btn btn-outline btn-sm" style="color:var(--danger); padding:3px 9px; font-size:0.75rem;" onclick="handleAdminDeleteAssignment('${task.id}')">🗑️ Xóa</button>
                           </div>
-                          <div style="font-weight:800; font-size:0.95rem; margin-bottom:4px;">${task.title}</div>
-                          <div style="font-size:0.82rem; color:#334155;">
-                            🎯 Mục tiêu: <strong>≥ ${task.minScore} điểm</strong> • Kết quả của em: <strong>${evalRes.bestScoreText}</strong>
+                          <div style="font-weight:800; font-size:0.96rem; margin-bottom:6px; color:var(--text-main);">${task.title}</div>
+                          <div style="font-size:0.83rem; color:#334155; display:flex; justify-content:space-between; flex-wrap:wrap; gap:8px;">
+                            <span>🎯 Yêu cầu: <strong>≥ ${task.minScore} điểm</strong></span>
+                            <span>📊 Kết quả hiện tại: <strong style="color:${evalRes.isCompleted ? "#059669" : "#D97706"};">${evalRes.bestScoreText}</strong></span>
                           </div>
-                          ${task.note ? `<div style="font-size:0.8rem; color:var(--text-muted); margin-top:4px; font-style:italic;">💬 "${task.note}"</div>` : ""}
+                          ${task.note ? `<div style="font-size:0.8rem; color:#475569; margin-top:8px; padding:7px 10px; background:#F8FAFC; border-radius:8px; border-left:3px solid #6366F1;">💬 <em>"${task.note}"</em></div>` : ""}
                         </div>
                       `;
                     })
@@ -3910,6 +4137,20 @@
       </div>
     `;
   }
+
+  window.applyAssignmentPreset = function (targetVal, minScore, dueDate, note) {
+    const targetEl = document.getElementById("assign-target");
+    const scoreEl = document.getElementById("assign-minscore");
+    const dueEl = document.getElementById("assign-duedate");
+    const noteEl = document.getElementById("assign-note");
+
+    if (targetEl) targetEl.value = targetVal;
+    if (scoreEl) scoreEl.value = minScore;
+    if (dueEl) dueEl.value = dueDate;
+    if (noteEl) noteEl.value = note;
+
+    showToast("⚡ Đã điền mẫu nhiệm vụ! Bấm 'Giao Nhiệm Vụ Này Cho Em Ngay' để hoàn tất.", "info");
+  };
 
   window.handleAdminCreateAssignment = async function () {
     const studentVal = document.getElementById("assign-student")?.value || "all";
@@ -3935,6 +4176,7 @@
 
     state.systemStore.assignments = state.systemStore.assignments || [];
     state.systemStore.assignments.unshift(newTask);
+    state.adminPreselectAssignment = null;
 
     if (window.EY8_Supabase) {
       await window.EY8_Supabase.saveSystemStore(state.systemStore);
@@ -3962,7 +4204,7 @@
   };
 
   // -------------------------------------------------------------------------
-  // ADMIN TAB 3: QUẢN LÝ ĐỀ THI & CÂU HỎI (CONTENT & QUESTION BANK MANAGER)
+  // ADMIN TAB 3: QUẢN LÝ ĐỀ THI & NGÂN HÀNG CÂU HỎI (CONTENT & QUESTION EXPLORER)
   // -------------------------------------------------------------------------
   function renderAdminContentView() {
     const units = window.STUDY_DATA.units || [];
@@ -3973,41 +4215,68 @@
     const totalUnitQuestions = units.reduce((acc, u) => acc + (u.practice ? u.practice.length : 0), 0);
     const totalExamQuestions = exams.reduce((acc, e) => acc + (e.questions ? e.questions.length : 0), 0);
 
+    // Bộ lọc trình duyệt ngân hàng câu hỏi
+    const browserSource = state.adminQBankSource || (exams[0] ? `exam|${exams[0].id}` : "unit|unit1");
+    const [bType, bId] = browserSource.split("|");
+    let browsedQuestions = [];
+    let browsedTitle = "";
+    if (bType === "exam") {
+      const exObj = exams.find((e) => e.id === bId) || exams[0];
+      if (exObj) {
+        browsedQuestions = exObj.questions || [];
+        browsedTitle = exObj.title;
+      }
+    } else {
+      const uObj = units.find((u) => u.id === bId) || units[0];
+      if (uObj) {
+        browsedQuestions = uObj.practice || [];
+        browsedTitle = `Unit ${uObj.number}: ${uObj.title}`;
+      }
+    }
+
     return `
       <div class="section-header">
         <div>
           <h2>🗂️ Quản Lý Ngân Hàng Đề Thi & Học Liệu</h2>
-          <p style="font-size:0.9rem; color:var(--text-muted);">Thêm câu hỏi trắc nghiệm mới từ đề cương ở trường của em hoặc tạo đề kiểm tra mới.</p>
+          <p style="font-size:0.9rem; color:var(--text-muted);">Tra cứu toàn bộ câu hỏi trong hệ thống, bổ sung câu hỏi mới từ đề cương trên lớp của em hoặc tạo đề thi riêng.</p>
         </div>
       </div>
 
-      <div class="kpi-grid">
-        <div class="kpi-card">
-          <div class="kpi-icon" style="background:#EEF2FF; color:#4F46E5;">📚</div>
-          <div>
-            <div class="kpi-val">${units.length} Units</div>
-            <div class="kpi-label">${totalUnitQuestions} câu bài tập theo Unit</div>
+      <div class="admin-kpi-grid">
+        <div class="admin-kpi-card">
+          <div class="admin-kpi-top">
+            <div>
+              <div class="admin-kpi-value">${units.length} Units</div>
+              <div class="admin-kpi-title">${totalUnitQuestions} câu bài tập theo Unit</div>
+            </div>
+            <div class="admin-kpi-icon" style="background:#EEF2FF; color:#4F46E5;">📚</div>
           </div>
         </div>
-        <div class="kpi-card">
-          <div class="kpi-icon" style="background:#ECFDF5; color:#10B981;">📝</div>
-          <div>
-            <div class="kpi-val">${exams.length} Đề thi</div>
-            <div class="kpi-label">${totalExamQuestions} câu hỏi trong phòng thi</div>
+        <div class="admin-kpi-card">
+          <div class="admin-kpi-top">
+            <div>
+              <div class="admin-kpi-value">${exams.length} Đề thi</div>
+              <div class="admin-kpi-title">${totalExamQuestions} câu hỏi trong phòng thi</div>
+            </div>
+            <div class="admin-kpi-icon" style="background:#ECFDF5; color:#10B981;">📝</div>
           </div>
         </div>
-        <div class="kpi-card">
-          <div class="kpi-icon" style="background:#FEF3C7; color:#D97706;">✨</div>
-          <div>
-            <div class="kpi-val">${customQuestions.length} câu</div>
-            <div class="kpi-label">Câu hỏi do Admin bổ sung thêm</div>
+        <div class="admin-kpi-card">
+          <div class="admin-kpi-top">
+            <div>
+              <div class="admin-kpi-value">${customQuestions.length} câu</div>
+              <div class="admin-kpi-title">Câu hỏi do Admin bổ sung thêm</div>
+            </div>
+            <div class="admin-kpi-icon" style="background:#FEF3C7; color:#D97706;">✨</div>
           </div>
         </div>
-        <div class="kpi-card">
-          <div class="kpi-icon" style="background:#FCE7F3; color:#DB2777;">🏆</div>
-          <div>
-            <div class="kpi-val">${customExams.length} đề</div>
-            <div class="kpi-label">Đề kiểm tra riêng do Admin tạo</div>
+        <div class="admin-kpi-card">
+          <div class="admin-kpi-top">
+            <div>
+              <div class="admin-kpi-value">${customExams.length} đề</div>
+              <div class="admin-kpi-title">Đề kiểm tra riêng do Admin tạo</div>
+            </div>
+            <div class="admin-kpi-icon" style="background:#FCE7F3; color:#DB2777;">🏆</div>
           </div>
         </div>
       </div>
@@ -4129,16 +4398,16 @@
             </div>
             ${
               customQuestions.length === 0
-                ? `<p style="color:var(--text-muted); font-size:0.86rem;">Chưa có câu hỏi bổ sung nào. Bạn có thể thêm câu hỏi ở khung bên trái.</p>`
+                ? `<p style="color:var(--text-muted); font-size:0.86rem;">Chưa có câu hỏi bổ sung nào. Bạn có thể thêm câu hỏi từ đề cương trường em ở khung bên trái.</p>`
                 : `
-                  <div style="display:flex; flex-direction:column; gap:10px; max-height:320px; overflow-y:auto;">
+                  <div style="display:flex; flex-direction:column; gap:10px; max-height:300px; overflow-y:auto;">
                     ${customQuestions
                       .map(
                         (cq) => `
                         <div style="padding:10px 12px; border:1px solid var(--border); border-radius:8px; font-size:0.84rem; display:flex; justify-content:space-between; align-items:flex-start; gap:8px;">
                           <div>
                             <div style="font-weight:700;">${cq.question}</div>
-                            <div style="color:var(--success); font-size:0.78rem;">Đáp án: ${cq.options[cq.answer]}</div>
+                            <div style="color:var(--success); font-size:0.78rem;">✔ Đáp án: ${cq.options[cq.answer]}</div>
                           </div>
                           <button class="btn btn-outline btn-sm" style="color:var(--danger); padding:2px 8px;" onclick="handleAdminDeleteCustomQuestion('${cq.id}')">Xóa</button>
                         </div>
@@ -4151,8 +4420,70 @@
           </div>
         </div>
       </div>
+
+      <!-- Khung Tra Cứu & Duyệt Ngân Hàng Câu Hỏi Toàn Hệ Thống -->
+      <div class="analytics-box" style="margin-top:24px;">
+        <div class="analytics-box-title" style="flex-wrap:wrap; gap:12px;">
+          <span>🔍 Duyệt & Xem Trước Câu Hỏi Trong Bộ Đề / Unit (${browsedQuestions.length} câu)</span>
+          <select class="form-control-select" style="width:auto; min-width:280px; font-weight:700;" onchange="handleAdminChangeQBankBrowser(this.value)">
+            <optgroup label="📝 Xem câu hỏi các Đề Kiểm Tra">
+              ${exams
+                .map(
+                  (ex) =>
+                    `<option value="exam|${ex.id}" ${browserSource === `exam|${ex.id}` ? "selected" : ""}>📝 ${ex.title} (${(ex.questions || []).length} câu)</option>`
+                )
+                .join("")}
+            </optgroup>
+            <optgroup label="📚 Xem câu hỏi Bài tập 6 Unit">
+              ${units
+                .map(
+                  (u) =>
+                    `<option value="unit|${u.id}" ${browserSource === `unit|${u.id}` ? "selected" : ""}>📚 Unit ${u.number}: ${u.title} (${(u.practice || []).length} câu)</option>`
+                )
+                .join("")}
+            </optgroup>
+          </select>
+        </div>
+
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(360px, 1fr)); gap:12px; max-height:480px; overflow-y:auto; padding-right:4px;">
+          ${browsedQuestions
+            .map(
+              (q, idx) => `
+              <div style="padding:14px 16px; border:1px solid var(--border); border-radius:12px; background:#F8FAFC; font-size:0.86rem;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                  <span style="font-size:0.75rem; font-weight:800; color:var(--primary); background:#EEF2FF; padding:2px 8px; border-radius:99px;">Câu ${idx + 1}</span>
+                  <span style="font-size:0.74rem; color:var(--text-muted);">${q.section || browsedTitle}</span>
+                </div>
+                <div style="font-weight:700; color:var(--text-main); margin-bottom:8px;">${q.question}</div>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-bottom:8px;">
+                  ${(q.options || [])
+                    .map(
+                      (opt, oIdx) => `
+                      <div style="padding:5px 8px; border-radius:6px; font-size:0.8rem; border:1px solid ${oIdx === q.answer ? "#10B981" : "#E2E8F0"}; background:${oIdx === q.answer ? "#ECFDF5" : "#FFFFFF"}; color:${oIdx === q.answer ? "#065F46" : "#334155"}; font-weight:${oIdx === q.answer ? "800" : "500"};">
+                        ${opt} ${oIdx === q.answer ? "✔" : ""}
+                      </div>
+                    `
+                    )
+                    .join("")}
+                </div>
+                ${
+                  q.explanation
+                    ? `<div style="font-size:0.78rem; color:#475569; background:#FFFFFF; padding:6px 10px; border-radius:6px; border-left:3px solid #10B981;">💡 ${q.explanation}</div>`
+                    : ""
+                }
+              </div>
+            `
+            )
+            .join("")}
+        </div>
+      </div>
     `;
   }
+
+  window.handleAdminChangeQBankBrowser = function (val) {
+    state.adminQBankSource = val;
+    renderApp();
+  };
 
   window.handleAdminAddQuestion = async function () {
     const targetRaw = document.getElementById("admin-q-target")?.value || "";
@@ -4261,7 +4592,7 @@
   };
 
   // -------------------------------------------------------------------------
-  // ADMIN TAB 4: QUẢN LÝ TÀI KHOẢN & CẤU HÌNH HỆ THỐNG (USERS & SYSTEM)
+  // ADMIN TAB 4: QUẢN LÝ TÀI KHOẢN & CẤU HÌNH HỆ THỐNG (USERS & CLOUD)
   // -------------------------------------------------------------------------
   function renderAdminUsersView() {
     const cfg = window.EY8_Supabase ? window.EY8_Supabase.getConfig() : {};
@@ -4269,8 +4600,8 @@
     return `
       <div class="section-header">
         <div>
-          <h2>👥 Quản Lý Tài Khoản Học Sinh & Hệ Thống</h2>
-          <p style="font-size:0.9rem; color:var(--text-muted);">Quản lý mật khẩu của em, tạo thêm tài khoản mới hoặc kiểm tra kết nối cơ sở dữ liệu Supabase.</p>
+          <h2>👥 Quản Lý Tài Khoản Học Sinh & Hệ Thống Cloud</h2>
+          <p style="font-size:0.9rem; color:var(--text-muted);">Quản lý mật khẩu của em, nhảy nhanh sang giám sát từng học sinh, cấp tài khoản mới hoặc kiểm tra kết nối Supabase.</p>
         </div>
       </div>
 
@@ -4279,7 +4610,7 @@
         <div class="analytics-box">
           <div class="analytics-box-title">
             <span>📋 Danh Sách Tài Khoản Trên Hệ Thống (${state.allUsers.length})</span>
-            <button class="btn btn-outline btn-sm" onclick="refreshAdminUsersList()">🔄 Làm mới</button>
+            <button class="btn btn-outline btn-sm" onclick="refreshAdminUsersList()">🔄 Làm mới danh sách</button>
           </div>
 
           <div style="overflow-x:auto;">
@@ -4299,7 +4630,7 @@
                     (u) => `
                     <tr>
                       <td><strong>${u.fullName}</strong></td>
-                      <td><code>${u.username}</code></td>
+                      <td><code>@${u.username}</code></td>
                       <td>
                         <span class="user-role-tag ${u.role === "admin" ? "admin" : "student"}">
                           ${u.role === "admin" ? "👑 Admin" : "🎓 Học sinh"}
@@ -4308,7 +4639,16 @@
                       <td><code>${u.pinCode || "****"}</code></td>
                       <td>
                         <div style="display:flex; gap:6px; flex-wrap:wrap;">
-                          <button class="btn btn-outline btn-sm" style="padding:3px 8px; font-size:0.76rem;" onclick="handleAdminChangeUserPassword('${u.id}', '${u.username}', '${u.fullName}')">
+                          ${
+                            u.role === "student"
+                              ? `
+                              <button class="btn btn-primary btn-sm" style="padding:3px 9px; font-size:0.75rem;" onclick="handleAdminInspectFromUsersTab('${u.username}')">
+                                📊 Giám sát
+                              </button>
+                            `
+                              : ""
+                          }
+                          <button class="btn btn-outline btn-sm" style="padding:3px 8px; font-size:0.76rem;" onclick="openAdminPasswordModal('${u.id}', '${u.username}', '${u.fullName}')">
                             🔑 Đổi MK
                           </button>
                           ${
@@ -4369,7 +4709,7 @@
                 </select>
               </div>
               <button type="submit" class="btn btn-primary" style="width:100%;">
-                ✨ Tạo Tài Khoản
+                ✨ Tạo Tài Khoản Ngay
               </button>
             </form>
           </div>
@@ -4415,18 +4755,47 @@
     }
   };
 
-  window.handleAdminChangeUserPassword = async function (userId, username, fullName) {
-    const newPass = prompt(`Nhập mật khẩu / mã PIN mới cho tài khoản "${fullName}" (${username}):`);
-    if (!newPass || !newPass.trim()) return;
-    if (newPass.trim().length < 4) {
+  window.openAdminPasswordModal = function (userId, username, fullName) {
+    const modalRoot = document.getElementById("modal-root");
+    if (!modalRoot) return;
+
+    modalRoot.innerHTML = `
+      <div class="modal-overlay" onclick="closeModal()">
+        <div class="modal-content" style="max-width:440px;" onclick="event.stopPropagation()">
+          <button class="modal-close-btn" onclick="closeModal()">✕</button>
+          <div style="font-size:2rem; margin-bottom:8px;">🔑</div>
+          <h3 style="font-size:1.22rem; font-weight:900; margin-bottom:4px;">Đổi Mật Khẩu Tài Khoản</h3>
+          <p style="font-size:0.86rem; color:var(--text-muted); margin-bottom:16px;">
+            Tài khoản: <strong>${fullName}</strong> (<code>@${username}</code>)
+          </p>
+          <form onsubmit="event.preventDefault(); submitAdminPasswordModal('${userId}', '${username}');">
+            <div class="form-field">
+              <label>Mật khẩu / Mã PIN mới (ít nhất 4 ký tự)</label>
+              <input id="admin-modal-newpass" type="text" class="form-control-input" placeholder="Nhập mật khẩu mới..." required minlength="4" autofocus />
+            </div>
+            <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:18px;">
+              <button type="button" class="btn btn-outline" onclick="closeModal()">Hủy</button>
+              <button type="submit" class="btn btn-primary">💾 Lưu mật khẩu mới</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    `;
+  };
+
+  window.submitAdminPasswordModal = async function (userId, username) {
+    const inputEl = document.getElementById("admin-modal-newpass");
+    const newPass = inputEl ? inputEl.value.trim() : "";
+    if (newPass.length < 4) {
       showToast("⚠️ Mật khẩu phải có ít nhất 4 ký tự!", "warning");
       return;
     }
+    closeModal();
     await window.EY8_Supabase.updateUserPasswordOrInfo(userId, username, {
-      pinCode: newPass.trim()
+      pinCode: newPass
     });
     await refreshAdminUsersList();
-    showToast(`🔑 Đã cập nhật mật khẩu mới cho "${username}" thành: ${newPass.trim()}`, "success");
+    showToast(`🔑 Đã cập nhật mật khẩu mới cho "@${username}" thành: ${newPass}`, "success");
   };
 
   window.handleAdminResetStudentData = function (username, userId) {
