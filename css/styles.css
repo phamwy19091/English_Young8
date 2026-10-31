@@ -3423,3 +3423,235 @@ body {
   transform: translateY(-1px);
 }
 
+/* ==============================================================================
+   FUNCTIONAL UPGRADES 1, 2, 3: SPELLING STUDIO, SMART ADAPTIVE QUIZ & WRITTEN EXERCISES
+   ============================================================================== */
+
+/* 1. Spelling & Listening Active Recall Studio */
+.vocab-mode-pill-switch {
+  display: inline-flex;
+  background: rgba(15, 23, 42, 0.45);
+  padding: 4px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  gap: 4px;
+}
+
+.vocab-mode-pill-btn {
+  border: none;
+  background: transparent;
+  color: #CBD5E1;
+  font-size: 0.84rem;
+  font-weight: 800;
+  padding: 8px 16px;
+  border-radius: 9px;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.vocab-mode-pill-btn:hover {
+  color: #FFFFFF;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.vocab-mode-pill-btn.active {
+  background: linear-gradient(135deg, #F59E0B, #D97706);
+  color: #FFFFFF;
+  box-shadow: 0 3px 12px rgba(245, 158, 11, 0.4);
+}
+
+.spelling-studio-card {
+  background: #FFFFFF;
+  color: var(--text-main);
+  border-radius: 22px;
+  padding: 28px 30px;
+  box-shadow: 0 20px 45px rgba(0, 0, 0, 0.28), 0 0 0 4px rgba(255, 255, 255, 0.12);
+  border-top: 6px solid #F59E0B;
+  max-width: 680px;
+  margin: 0 auto;
+}
+
+.spelling-clue-box {
+  background: #F8FAFC;
+  border: 1.5px solid #E2E8F0;
+  border-radius: 14px;
+  padding: 16px 18px;
+  margin: 14px 0 18px;
+  text-align: left;
+}
+
+.spelling-blank-token {
+  display: inline-block;
+  background: #FEF3C7;
+  color: #B45309;
+  font-weight: 900;
+  padding: 1px 10px;
+  border-radius: 6px;
+  border-bottom: 2px dashed #D97706;
+  font-family: monospace;
+  letter-spacing: 2px;
+}
+
+.spelling-input-row {
+  display: flex;
+  gap: 10px;
+  align-items: stretch;
+  margin-bottom: 12px;
+}
+
+@media (max-width: 560px) {
+  .spelling-input-row {
+    flex-direction: column;
+  }
+}
+
+.spelling-input-box {
+  flex: 1;
+  padding: 13px 16px;
+  font-size: 1.15rem;
+  font-weight: 800;
+  border: 2px solid #CBD5E1;
+  border-radius: 12px;
+  outline: none;
+  color: #1E1B4B;
+  letter-spacing: 0.5px;
+  transition: all 0.2s;
+}
+
+.spelling-input-box:focus {
+  border-color: #4F46E5;
+  box-shadow: 0 0 0 4px rgba(79, 70, 229, 0.15);
+}
+
+.spelling-input-box.is-correct {
+  border-color: #10B981;
+  background: #ECFDF5;
+  color: #065F46;
+}
+
+.spelling-input-box.is-wrong {
+  border-color: #EF4444;
+  background: #FEF2F2;
+  color: #991B1B;
+}
+
+.spelling-letter-slots {
+  font-family: 'Courier New', monospace;
+  font-size: 1.1rem;
+  font-weight: 900;
+  letter-spacing: 3px;
+  color: #4338CA;
+  background: #EEF2FF;
+  padding: 6px 14px;
+  border-radius: 999px;
+  display: inline-block;
+  margin-bottom: 12px;
+  border: 1px dashed #A5B4FC;
+}
+
+/* 2. Smart Adaptive Quiz Banner */
+.smart-adaptive-banner {
+  background: linear-gradient(135deg, #1E1B4B 0%, #312E81 50%, #4F46E5 100%);
+  color: #FFFFFF;
+  border-radius: 20px;
+  padding: 24px 28px;
+  margin-bottom: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+  box-shadow: 0 12px 30px rgba(49, 46, 129, 0.22);
+  border: 1px solid rgba(165, 180, 252, 0.28);
+}
+
+/* 3. Written Exercises (Word Form & Sentence Transformation) */
+.written-card {
+  background: #FFFFFF;
+  border: 1.5px solid var(--border);
+  border-radius: 16px;
+  padding: 20px 22px;
+  margin-bottom: 16px;
+  box-shadow: var(--shadow-sm);
+  transition: all 0.2s;
+}
+
+.written-card.correct {
+  border-color: #10B981;
+  background: linear-gradient(180deg, #F0FDF4 0%, #FFFFFF 45%);
+}
+
+.written-card.wrong {
+  border-color: #EF4444;
+  background: linear-gradient(180deg, #FEF2F2 0%, #FFFFFF 45%);
+}
+
+.written-type-badge {
+  font-size: 0.75rem;
+  font-weight: 800;
+  padding: 4px 10px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.written-type-badge.word-form {
+  background: #FEF3C7;
+  color: #92400E;
+}
+
+.written-type-badge.rewrite {
+  background: #EEF2FF;
+  color: #3730A3;
+}
+
+.written-prompt-box {
+  background: #F8FAFC;
+  border: 1px solid #E2E8F0;
+  border-left: 4px solid #4F46E5;
+  border-radius: 10px;
+  padding: 12px 15px;
+  margin: 10px 0 12px;
+  font-size: 0.95rem;
+}
+
+.written-input-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.written-prefix-label {
+  font-weight: 800;
+  color: #1E293B;
+  font-size: 0.95rem;
+  background: #F1F5F9;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid #CBD5E1;
+}
+
+.written-text-input {
+  flex: 1;
+  min-width: 220px;
+  padding: 10px 14px;
+  font-size: 0.96rem;
+  font-weight: 700;
+  border: 1.5px solid #CBD5E1;
+  border-radius: 10px;
+  color: var(--text-main);
+  outline: none;
+  transition: all 0.2s;
+}
+
+.written-text-input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.14);
+}
+
+

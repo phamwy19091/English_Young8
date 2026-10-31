@@ -21,7 +21,11 @@
     // Student Portal state
     currentTab: "dashboard", // dashboard | unit-study | exams | mistakes | student-progress
     selectedUnitId: "unit-1",
-    unitSubTab: "vocab", // vocab | grammar | practice
+    unitSubTab: "vocab", // vocab | grammar | practice | written
+    vocabStudyMode: "flashcard", // 'flashcard' (Thẻ lật 3D) | 'spelling' (Nghe & Gõ chính tả)
+    spellingInput: "",
+    spellingHintCount: 0,
+    spellingFeedback: null, // null | { status: 'correct' | 'wrong' | 'revealed', typed: '' }
     fcIndex: 0,
     fcFlipped: false,
     fcDeckMode: "unlearned", // 'unlearned' (chỉ học từ chưa thuộc - mặc định) | 'all' (ôn tất cả)
@@ -31,6 +35,10 @@
     unitQuizSubmitted: false,
     unitQuizMode: "list", // 'list' (xem toàn bộ) | 'focus' (tập trung từng câu)
     unitQuizFocusIndex: 0,
+    writtenAnswers: {},
+    writtenChecked: {},
+    writtenHints: {},
+    writtenSubmittedAll: false,
 
     // Exam state
     examFilter: "all", // all | 15m | midterm | final
@@ -490,6 +498,8 @@
           ? "Ngữ pháp"
           : state.unitSubTab === "practice"
           ? "Bài tập"
+          : state.unitSubTab === "written"
+          ? "Tự luận"
           : "Từ vựng & Flashcard";
       return `📚 Unit ${unit ? unit.number + ": " + unit.title : ""} (${subLabel}) — English Young 8`;
     }
@@ -598,7 +608,7 @@
           state.unitQuizSubmitted = false;
           resetFlashcardPositionForUnit(uId);
         }
-        state.unitSubTab = ["vocab", "grammar", "practice"].includes(sTab) ? sTab : "vocab";
+        state.unitSubTab = ["vocab", "grammar", "practice", "written"].includes(sTab) ? sTab : "vocab";
       } else if (section === "exams") {
         state.currentTab = "exams";
         if (parts[1] === "room" && parts[2]) {
@@ -1375,8 +1385,11 @@
                 <button class="unit-step-btn" onclick="openUnitWithSubTab('${u.id}', 'grammar')">
                   📐 Ngữ pháp
                 </button>
+                <button class="unit-step-btn" onclick="openUnitWithSubTab('${u.id}', 'written')">
+                  ✏️ Tự luận
+                </button>
                 <button class="unit-step-btn primary-step" style="background:${u.color}" onclick="openUnitWithSubTab('${u.id}', 'practice')">
-                  ✍️ Luyện tập
+                  ✍️ Trắc nghiệm
                 </button>
               </div>
             </div>
@@ -1456,11 +1469,14 @@
             </div>
 
             <div style="display:flex; gap:8px; flex-wrap:wrap;">
-              <button class="btn btn-white btn-sm" style="padding:9px 15px; font-weight:800;" onclick="openUnitWithSubTab('${activeUnit.id}', 'vocab')">
-                ▶ Học tiếp Từ vựng (${activeTotalV - activeLearnedV} từ còn lại)
+              <button class="btn btn-white btn-sm" style="padding:9px 14px; font-weight:800;" onclick="openUnitWithSubTab('${activeUnit.id}', 'vocab')">
+                ▶ Học Từ vựng (${activeTotalV - activeLearnedV} từ)
               </button>
-              <button class="btn btn-outline-white btn-sm" style="padding:9px 14px;" onclick="openUnitWithSubTab('${activeUnit.id}', 'practice')">
-                ✍️ Làm bài tập
+              <button class="btn btn-outline-white btn-sm" style="padding:9px 13px;" onclick="openUnitWithSubTab('${activeUnit.id}', 'written')">
+                ✏️ Tự luận
+              </button>
+              <button class="btn btn-outline-white btn-sm" style="padding:9px 13px;" onclick="startSmartAdaptiveQuiz(10)">
+                🔀 Đề Đảo Đáp Án
               </button>
             </div>
           </div>
@@ -1657,6 +1673,7 @@
   function renderUnitStudy() {
     const units = window.STUDY_DATA.units || [];
     const unit = units.find((u) => u.id === state.selectedUnitId) || units[0];
+    const writtenList = getWrittenExercisesForUnit(unit.id);
 
     const unitSelectorHtml = units
       .map(
@@ -1675,6 +1692,8 @@
       subContentHtml = renderUnitGrammarSubTab(unit);
     } else if (state.unitSubTab === "practice") {
       subContentHtml = renderUnitPracticeSubTab(unit);
+    } else if (state.unitSubTab === "written") {
+      subContentHtml = renderUnitWrittenSubTab(unit);
     }
 
     return `
@@ -1695,13 +1714,16 @@
 
       <div class="sub-tabs">
         <button class="sub-tab ${state.unitSubTab === "vocab" ? "active" : ""}" onclick="switchUnitSubTab('vocab')">
-          🗂️ 1. Từ vựng & Flashcard (${unit.vocabulary.length} từ)
+          🗂️ 1. Từ vựng & Gõ từ (${unit.vocabulary.length} từ)
         </button>
         <button class="sub-tab ${state.unitSubTab === "grammar" ? "active" : ""}" onclick="switchUnitSubTab('grammar')">
-          📐 2. Ngữ âm & Ngữ pháp trọng tâm
+          📐 2. Ngữ âm & Ngữ pháp
         </button>
         <button class="sub-tab ${state.unitSubTab === "practice" ? "active" : ""}" onclick="switchUnitSubTab('practice')">
-          ✍️ 3. Bài tập thực hành Unit ${unit.number} (${unit.practice.length} câu)
+          ✍️ 3. Trắc nghiệm Unit ${unit.number} (${unit.practice.length} câu)
+        </button>
+        <button class="sub-tab ${state.unitSubTab === "written" ? "active" : ""}" onclick="switchUnitSubTab('written')">
+          ✏️ 4. Tự luận: Chia từ & Viết lại câu (${writtenList.length} câu)
         </button>
       </div>
 
@@ -1713,6 +1735,9 @@
     state.selectedUnitId = unitId;
     state.unitQuizAnswers = {};
     state.unitQuizSubmitted = false;
+    state.spellingInput = "";
+    state.spellingHintCount = 0;
+    state.spellingFeedback = null;
     resetFlashcardPositionForUnit(unitId);
     renderApp();
   };
@@ -1721,6 +1746,42 @@
     state.unitSubTab = subTab;
     renderApp();
   };
+
+  window.setVocabStudyMode = function (mode) {
+    state.vocabStudyMode = mode;
+    state.spellingInput = "";
+    state.spellingHintCount = 0;
+    state.spellingFeedback = null;
+    renderApp();
+    if (mode === "spelling") {
+      setTimeout(() => {
+        const inp = document.getElementById("spelling-user-input");
+        if (inp) inp.focus();
+      }, 40);
+    }
+  };
+
+  function maskTargetWordInSentence(sentence, targetWord) {
+    if (!sentence || !targetWord) return sentence || "";
+    const base = targetWord.trim().split(/\s+/)[0].replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const regex = new RegExp(`\\b${base}[a-z]*\\b`, "gi");
+    if (regex.test(sentence)) {
+      return sentence.replace(regex, `<span class="spelling-blank-token">_______</span>`);
+    }
+    return sentence;
+  }
+
+  function buildSpellingLetterSlots(word, hintCount) {
+    const clean = (word || "").trim();
+    return clean
+      .split("")
+      .map((ch, idx) => {
+        if (ch === " " || ch === "-") return ch;
+        if (idx < hintCount) return ch;
+        return "_";
+      })
+      .join(" ");
+  }
 
   function getActiveFlashcardDeck(unit) {
     const vocabList = (unit && unit.vocabulary) || [];
@@ -1737,7 +1798,7 @@
     const unlearnedCount = totalCount - learnedInUnit;
     const progressPct = totalCount > 0 ? Math.round((learnedInUnit / totalCount) * 100) : 0;
 
-    // Bộ thẻ đang hiển thị trên Flashcard Studio
+    // Bộ thẻ đang hiển thị trên Flashcard / Spelling Studio
     const activeDeck = getActiveFlashcardDeck(unit);
     if (state.fcIndex >= activeDeck.length) {
       state.fcIndex = Math.max(0, activeDeck.length - 1);
@@ -1745,7 +1806,7 @@
     const currentCard = activeDeck[state.fcIndex] || null;
     const isCurrentLearned = currentCard ? !!state.learnedVocab[currentCard.id] : false;
 
-    // Phần 1: Nội dung bên trong Flashcard Studio Stage
+    // Phần 1: Nội dung bên trong Flashcard / Spelling Studio Stage
     let flashcardBodyHtml = "";
     if (!currentCard) {
       // Đã thuộc hết 100% từ trong chế độ "Chỉ học từ chưa thuộc"
@@ -1768,6 +1829,160 @@
               </button>
             </div>
           </div>
+        </div>
+      `;
+    } else if (state.vocabStudyMode === "spelling") {
+      // CHẾ ĐỘ MỚI (MỤC 1): NGHE – GÕ TỪ VỰNG & ĐIỀN TỪ VÀO CÂU (ACTIVE RECALL SPELLING)
+      const wordStripHtml = activeDeck
+        .map((item, idx) => {
+          const itemLearned = !!state.learnedVocab[item.id];
+          const isActive = idx === state.fcIndex;
+          return `
+            <button
+              class="fc-word-dot ${isActive ? "active" : ""} ${itemLearned ? "is-learned" : ""}"
+              onclick="jumpToFlashcard(${idx})"
+              title="${item.word}"
+            >
+              <span>Từ #${idx + 1}</span>
+              ${itemLearned ? `<span>✓</span>` : ""}
+            </button>
+          `;
+        })
+        .join("");
+
+      const maskedExample = maskTargetWordInSentence(currentCard.example, currentCard.word);
+      const letterSlots = buildSpellingLetterSlots(currentCard.word, state.spellingHintCount);
+      const fb = state.spellingFeedback;
+      const isSolved = fb && (fb.status === "correct" || fb.status === "revealed");
+
+      flashcardBodyHtml = `
+        <div class="fc-word-strip">
+          ${wordStripHtml}
+        </div>
+
+        <div class="spelling-studio-card">
+          <div class="fc-card-top-meta" style="margin-bottom:14px;">
+            <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+              <span class="fc-type">${currentCard.type}</span>
+              <span class="fc-ipa" style="margin:0; font-size:0.95rem;">${currentCard.ipa}</span>
+            </div>
+            <span style="font-size:0.78rem; font-weight:800; padding:4px 12px; border-radius:99px; background:${isCurrentLearned ? "#D1FAE5" : "#FEF3C7"}; color:${isCurrentLearned ? "#065F46" : "#92400E"};">
+              ${isCurrentLearned ? "✅ Đã thuộc" : `🎧 Thử thách Gõ từ ${state.fcIndex + 1} / ${activeDeck.length}`}
+            </span>
+          </div>
+
+          <div style="text-align:center; margin-bottom:14px;">
+            <button
+              type="button"
+              class="btn btn-outline"
+              style="border-radius:999px; padding:8px 18px; font-weight:800; color:#4338CA; border-color:#A5B4FC; background:#EEF2FF;"
+              onclick="speakEnglish('${currentCard.word.replace(/'/g, "\\'")}', event)"
+            >
+              🔊 Bấm nghe phát âm tiếng Anh chuẩn
+            </button>
+
+            <div style="font-size:0.78rem; font-weight:800; color:var(--text-muted); text-transform:uppercase; margin-top:14px;">
+              🇻🇳 Nghĩa tiếng Việt cần gõ sang tiếng Anh:
+            </div>
+            <div style="font-size:1.55rem; font-weight:900; color:#0F172A; margin:4px 0 10px;">
+              ${currentCard.meaning}
+            </div>
+
+            <div class="spelling-letter-slots" title="Số ký tự của từ vựng">
+              ${isSolved ? currentCard.word.split("").join(" ") : letterSlots}
+              <span style="font-size:0.75rem; font-family:Inter, sans-serif; letter-spacing:0; color:#64748B; margin-left:6px;">
+                (${currentCard.word.length} ký tự)
+              </span>
+            </div>
+          </div>
+
+          <div class="spelling-clue-box">
+            <div style="font-size:0.76rem; font-weight:800; color:#4F46E5; text-transform:uppercase; margin-bottom:4px;">
+              📝 Điền từ còn thiếu vào câu ngữ cảnh:
+            </div>
+            <div style="font-size:0.98rem; font-weight:700; color:#1E293B; margin-bottom:4px;">
+              🇬🇧 "${isSolved ? currentCard.example : maskedExample}"
+            </div>
+            <div style="font-size:0.84rem; color:#64748B;">
+              🇻🇳 → ${currentCard.exampleVi}
+            </div>
+          </div>
+
+          <form onsubmit="event.preventDefault(); handleCheckSpelling();">
+            <div class="spelling-input-row">
+              <input
+                id="spelling-user-input"
+                type="text"
+                autocomplete="off"
+                spellcheck="false"
+                class="spelling-input-box ${fb ? (fb.status === "correct" ? "is-correct" : fb.status === "wrong" ? "is-wrong" : "") : ""}"
+                placeholder="Gõ từ tiếng Anh vào đây rồi nhấn Enter..."
+                value="${state.spellingInput.replace(/"/g, "&quot;")}"
+                oninput="state.spellingInput = this.value"
+              />
+              ${
+                !isSolved
+                  ? `
+                  <button type="submit" class="btn btn-primary" style="padding:0 22px; font-weight:800; white-space:nowrap;">
+                    ✔ Kiểm tra (Enter)
+                  </button>
+                `
+                  : `
+                  <button type="button" class="btn btn-success" style="padding:0 22px; font-weight:800; white-space:nowrap;" onclick="nextSpellingCard()">
+                    Từ tiếp theo ➔
+                  </button>
+                `
+              }
+            </div>
+          </form>
+
+          <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-top:8px;">
+            <div style="display:flex; gap:8px; flex-wrap:wrap;">
+              <button type="button" class="btn btn-outline btn-sm" onclick="revealSpellingHint('${currentCard.word.replace(/'/g, "\\'")}')">
+                💡 Gợi ý chữ cái (${state.spellingHintCount}/${currentCard.word.length})
+              </button>
+              <button type="button" class="btn btn-outline btn-sm" onclick="revealSpellingFullAnswer('${currentCard.word.replace(/'/g, "\\'")}')">
+                👁️ Xem đáp án từ này
+              </button>
+            </div>
+            <div style="display:flex; gap:8px;">
+              <button type="button" class="btn btn-outline btn-sm" onclick="prevFlashcard()">⬅ Từ trước</button>
+              <button type="button" class="btn btn-outline btn-sm" onclick="nextFlashcard()">Bỏ qua ➡</button>
+            </div>
+          </div>
+
+          ${
+            fb
+              ? fb.status === "correct"
+                ? `
+                  <div style="margin-top:16px; padding:14px 16px; border-radius:12px; background:#ECFDF5; border:1.5px solid #10B981; color:#065F46;">
+                    <div style="font-weight:900; font-size:0.98rem; margin-bottom:4px;">
+                      🎉 Chính xác 100%! Từ chuẩn là: <span style="font-size:1.1rem; text-decoration:underline;">${currentCard.word}</span> (${currentCard.ipa})
+                    </div>
+                    <div style="font-size:0.84rem;">💡 ${currentCard.tip} • Hệ thống đã tự động đánh dấu <strong>Đã thuộc</strong>!</div>
+                  </div>
+                `
+                : fb.status === "revealed"
+                ? `
+                  <div style="margin-top:16px; padding:14px 16px; border-radius:12px; background:#FFFBEB; border:1.5px solid #F59E0B; color:#92400E;">
+                    <div style="font-weight:900; font-size:0.96rem; margin-bottom:4px;">
+                      👁️ Đáp án đúng là: <strong>${currentCard.word}</strong> (${currentCard.ipa}) — ${currentCard.meaning}
+                    </div>
+                    <div style="font-size:0.83rem;">Hãy gõ lại từ <strong>${currentCard.word}</strong> vào ô phía trên và bấm Kiểm tra để nhớ mặt chữ nhé!</div>
+                  </div>
+                `
+                : `
+                  <div style="margin-top:16px; padding:14px 16px; border-radius:12px; background:#FEF2F2; border:1.5px solid #EF4444; color:#991B1B;">
+                    <div style="font-weight:800; font-size:0.92rem;">
+                      ❌ Chưa đúng chính tả! Em vừa gõ: "<code>${fb.typed}</code>".
+                    </div>
+                    <div style="font-size:0.82rem; margin-top:4px;">
+                      👉 Hãy bấm <strong>"💡 Gợi ý chữ cái"</strong> hoặc <strong>"🔊 Nghe phát âm"</strong> rồi gõ lại nhé!
+                    </div>
+                  </div>
+                `
+              : ""
+          }
         </div>
       `;
     } else {
@@ -1882,37 +2097,58 @@
     });
 
     return `
-      <!-- KHU VỰC 1: FLASHCARD STUDIO (TƯƠNG PHẢN CAO, TÁCH BIỆT VỚI BẢNG TỪ VỰNG) -->
+      <!-- KHU VỰC 1: FLASHCARD & SPELLING STUDIO (TƯƠNG PHẢN CAO, TÁCH BIỆT VỚI BẢNG TỪ VỰNG) -->
       <div class="fc-studio-stage" id="flashcard-studio-top">
         <div class="fc-studio-topbar">
           <div class="fc-studio-title">
-            <span style="font-size:1.45rem;">🃏</span>
+            <span style="font-size:1.45rem;">${state.vocabStudyMode === "spelling" ? "🎧" : "🃏"}</span>
             <div>
               <div style="font-size:1.08rem; font-weight:800; color:white;">
-                Phòng Học Thẻ Ghi Nhớ (Flashcard Thông Minh)
+                ${
+                  state.vocabStudyMode === "spelling"
+                    ? "Phòng Thử Thách Nghe & Gõ Chính Tả Từ Vựng"
+                    : "Phòng Học Thẻ Ghi Nhớ (Flashcard 3D Thông Minh)"
+                }
               </div>
               <div style="font-size:0.8rem; color:#C7D2FE;">
-                Tự động ẩn các từ em đã thuộc để không bị bấm nhầm hoặc học lặp lại
+                ${
+                  state.vocabStudyMode === "spelling"
+                    ? "Nhìn nghĩa tiếng Việt & nghe âm thanh để tự gõ lại từ tiếng Anh chuẩn xác"
+                    : "Tự động ẩn các từ em đã thuộc để không bị bấm nhầm hoặc học lặp lại"
+                }
               </div>
             </div>
           </div>
 
-          <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
-            <span class="fc-studio-badge">
-              ✅ Tiến độ: ${learnedInUnit} / ${totalCount} từ (${progressPct}%)
-            </span>
+          <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+            <!-- Bộ chuyển đổi giữa Thẻ Lật 3D và Nghe & Gõ Từ -->
+            <div class="vocab-mode-pill-switch">
+              <button
+                class="vocab-mode-pill-btn ${state.vocabStudyMode === "flashcard" ? "active" : ""}"
+                onclick="setVocabStudyMode('flashcard')"
+              >
+                🃏 1. Thẻ Lật 3D
+              </button>
+              <button
+                class="vocab-mode-pill-btn ${state.vocabStudyMode === "spelling" ? "active" : ""}"
+                onclick="setVocabStudyMode('spelling')"
+              >
+                🎧 2. Nghe & Gõ Từ
+              </button>
+            </div>
+
             <div class="fc-deck-mode-switch">
               <button
                 class="fc-deck-mode-btn ${state.fcDeckMode === "unlearned" ? "active" : ""}"
                 onclick="setFlashcardDeckMode('unlearned')"
               >
-                🎯 Chỉ từ chưa thuộc (${unlearnedCount})
+                🎯 Chưa thuộc (${unlearnedCount})
               </button>
               <button
                 class="fc-deck-mode-btn ${state.fcDeckMode === "all" ? "active" : ""}"
                 onclick="setFlashcardDeckMode('all')"
               >
-                📚 Xem tất cả (${totalCount})
+                📚 Tất cả (${totalCount})
               </button>
             </div>
           </div>
@@ -2037,10 +2273,17 @@
     `;
   }
 
+  function resetSpellingCardState() {
+    state.spellingInput = "";
+    state.spellingHintCount = 0;
+    state.spellingFeedback = null;
+  }
+
   window.setFlashcardDeckMode = function (mode) {
     state.fcDeckMode = mode;
     state.fcIndex = 0;
     state.fcFlipped = false;
+    resetSpellingCardState();
     renderApp();
   };
 
@@ -2052,6 +2295,7 @@
   window.jumpToFlashcard = function (idx) {
     state.fcIndex = idx;
     state.fcFlipped = false;
+    resetSpellingCardState();
     renderApp();
   };
 
@@ -2067,6 +2311,7 @@
     }
     state.fcIndex = Math.max(0, idx);
     state.fcFlipped = false;
+    resetSpellingCardState();
     renderApp();
     const el = document.getElementById("flashcard-studio-top");
     if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -2084,6 +2329,7 @@
     if (deck.length === 0) return;
     state.fcIndex = (state.fcIndex - 1 + deck.length) % deck.length;
     state.fcFlipped = false;
+    resetSpellingCardState();
     renderApp();
   };
 
@@ -2094,7 +2340,93 @@
     if (deck.length === 0) return;
     state.fcIndex = (state.fcIndex + 1) % deck.length;
     state.fcFlipped = false;
+    resetSpellingCardState();
     renderApp();
+  };
+
+  window.revealSpellingHint = function (word) {
+    const maxLen = (word || "").length;
+    if (state.spellingHintCount < maxLen) {
+      state.spellingHintCount++;
+    }
+    renderApp();
+    const inp = document.getElementById("spelling-user-input");
+    if (inp) inp.focus();
+  };
+
+  window.revealSpellingFullAnswer = function (word) {
+    state.spellingHintCount = (word || "").length;
+    state.spellingFeedback = { status: "revealed", typed: state.spellingInput };
+    if (word) window.speakEnglish(word);
+    renderApp();
+    const inp = document.getElementById("spelling-user-input");
+    if (inp) inp.focus();
+  };
+
+  window.handleCheckSpelling = function () {
+    const unit = (window.STUDY_DATA.units || []).find((u) => u.id === state.selectedUnitId);
+    if (!unit) return;
+    const deck = getActiveFlashcardDeck(unit);
+    const currentCard = deck[state.fcIndex];
+    if (!currentCard) return;
+
+    // Nếu đã giải đúng rồi và nhấn Enter lần nữa -> Chuyển sang từ tiếp theo
+    if (state.spellingFeedback && state.spellingFeedback.status === "correct") {
+      window.nextSpellingCard();
+      return;
+    }
+
+    const inputEl = document.getElementById("spelling-user-input");
+    const rawVal = (inputEl ? inputEl.value : state.spellingInput || "").trim();
+    state.spellingInput = rawVal;
+
+    if (!rawVal) {
+      showToast("✍️ Em hãy gõ từ tiếng Anh vào ô trống trước khi kiểm tra nhé!", "warning");
+      return;
+    }
+
+    const normalizeWord = (s) => s.toLowerCase().replace(/\s+/g, " ").trim();
+    if (normalizeWord(rawVal) === normalizeWord(currentCard.word)) {
+      state.spellingFeedback = { status: "correct", typed: rawVal };
+      window.speakEnglish(currentCard.word);
+
+      // Tự động đánh dấu Đã thuộc từ này (nhưng chưa nhảy sang từ mới ngay để em nhìn câu hoàn chỉnh)
+      if (!state.learnedVocab[currentCard.id]) {
+        state.learnedVocab[currentCard.id] = true;
+        persistActiveStudentState();
+        if (window.EY8_Supabase && window.EY8_Supabase.syncVocabProgress) {
+          window.EY8_Supabase.syncVocabProgress(currentCard.id, state.selectedUnitId, "mastered", state);
+        }
+      }
+      showToast(`🎉 Chính xác! Em đã gõ đúng từ "${currentCard.word}"!`, "success");
+    } else {
+      state.spellingFeedback = { status: "wrong", typed: rawVal };
+      showToast("❌ Chưa đúng chính tả, em kiểm tra lại các chữ cái nhé!", "warning");
+    }
+    renderApp();
+    setTimeout(() => {
+      const inp = document.getElementById("spelling-user-input");
+      if (inp) inp.focus();
+    }, 30);
+  };
+
+  window.nextSpellingCard = function () {
+    const unit = (window.STUDY_DATA.units || []).find((u) => u.id === state.selectedUnitId);
+    if (!unit) return;
+    resetSpellingCardState();
+    const deck = getActiveFlashcardDeck(unit);
+    if (deck.length > 0) {
+      if (state.fcDeckMode === "unlearned") {
+        if (state.fcIndex >= deck.length) state.fcIndex = 0;
+      } else {
+        state.fcIndex = (state.fcIndex + 1) % deck.length;
+      }
+    }
+    renderApp();
+    setTimeout(() => {
+      const inp = document.getElementById("spelling-user-input");
+      if (inp) inp.focus();
+    }, 30);
   };
 
   // Đánh dấu 1 chiều: ĐÃ THUỘC (Không bao giờ tự hủy khi bấm nhầm lần 2)
@@ -2594,6 +2926,675 @@
   };
 
   // =========================================================================
+  // 2D. BÀI TẬP TỰ LUẬN: CHIA DẠNG TỪ & VIẾT LẠI CÂU (MỤC 3 - CHẤM TỰ ĐỘNG)
+  // =========================================================================
+  const UNIT_WRITTEN_EXERCISES = {
+    "unit-1": [
+      {
+        id: "u1_w1",
+        type: "word-form",
+        rootWord: "RELAX",
+        question: "Doing yoga in the morning is a very _______ activity for my mother.",
+        prefix: "",
+        accepted: ["relaxing"],
+        hint: "Đứng trước danh từ 'activity' cần một Tính từ chỉ tính chất (V-ing).",
+        explanation: "Tính từ 'relaxing' (mang lại sự thư giãn) bổ nghĩa cho danh từ 'activity'."
+      },
+      {
+        id: "u1_w2",
+        type: "word-form",
+        rootWord: "ACT",
+        question: "Outdoor _______ help teenagers stay healthy and make new friends.",
+        prefix: "",
+        accepted: ["activities"],
+        hint: "Động từ chính 'help' đang chia ở số nhiều -> cần Danh từ số nhiều chỉ 'các hoạt động'.",
+        explanation: "Outdoor activities = các hoạt động ngoài trời (danh từ số nhiều đi với động từ 'help')."
+      },
+      {
+        id: "u1_w3",
+        type: "word-form",
+        rootWord: "CREATE",
+        question: "Making origami requires a lot of patience and _______.",
+        prefix: "",
+        accepted: ["creativity", "creation"],
+        hint: "Cấu trúc song song: 'patience (danh từ) and + Danh từ chỉ sự sáng tạo'.",
+        explanation: "Sau liên từ 'and' nối với danh từ 'patience' ta cần danh từ 'creativity' (sự sáng tạo)."
+      },
+      {
+        id: "u1_w4",
+        type: "rewrite",
+        rootWord: "keen on",
+        question: "My sister loves making dollhouses in her free time.",
+        prefix: "My sister is keen",
+        accepted: [
+          "on making dollhouses in her free time",
+          "My sister is keen on making dollhouses in her free time"
+        ],
+        hint: "Cấu trúc tương đương với 'love + V-ing': be keen on + V-ing.",
+        explanation: "love + V-ing = be keen on + V-ing (yêu thích/say mê làm gì)."
+      },
+      {
+        id: "u1_w5",
+        type: "rewrite",
+        rootWord: "into",
+        question: "Nam enjoys playing badminton with his classmates after school.",
+        prefix: "Nam is into",
+        accepted: [
+          "playing badminton with his classmates after school",
+          "Nam is into playing badminton with his classmates after school"
+        ],
+        hint: "Cụm cố định trong Unit 1: be into + V-ing (rất thích làm gì).",
+        explanation: "enjoy + V-ing = be into + V-ing (đam mê/thích làm gì)."
+      },
+      {
+        id: "u1_w6",
+        type: "rewrite",
+        rootWord: "detests",
+        question: "Minh hates doing puzzles because he finds them boring.",
+        prefix: "Minh detests",
+        accepted: [
+          "doing puzzles because he finds them boring",
+          "Minh detests doing puzzles because he finds them boring"
+        ],
+        hint: "Sau động từ 'detest' (cực kỳ ghét) luôn cộng với V-ing.",
+        explanation: "hate + V-ing = detest + V-ing (ghét làm việc gì)."
+      }
+    ],
+    "unit-2": [
+      {
+        id: "u2_w1",
+        type: "word-form",
+        rootWord: "HOSPITABLE",
+        question: "The local villagers welcomed the visitors very _______.",
+        prefix: "",
+        accepted: ["hospitably"],
+        hint: "Bổ nghĩa cho động từ thường 'welcomed' cần một Trạng từ (đuôi -ly).",
+        explanation: "hospitable (tính từ: hiếu khách) -> hospitably (trạng từ: một cách hiếu khách)."
+      },
+      {
+        id: "u2_w2",
+        type: "word-form",
+        rootWord: "PEACE",
+        question: "Life in the countryside is much more _______ than life in the city.",
+        prefix: "",
+        accepted: ["peaceful"],
+        hint: "Sau 'to be (is) + much more' cần một Tính từ dài.",
+        explanation: "peace (danh từ: sự bình yên) -> peaceful (tính từ: yên bình)."
+      },
+      {
+        id: "u2_w3",
+        type: "word-form",
+        rootWord: "COLLECT",
+        question: "Children in the village enjoy _______ blackberries in the forest.",
+        prefix: "",
+        accepted: ["collecting"],
+        hint: "Sau động từ 'enjoy' ta chia động từ ở dạng V-ing.",
+        explanation: "enjoy + V-ing -> collecting (hái, thu lượm)."
+      },
+      {
+        id: "u2_w4",
+        type: "rewrite",
+        rootWord: "more slowly",
+        question: "A horse can run faster than a buffalo.",
+        prefix: "A buffalo runs",
+        accepted: [
+          "more slowly than a horse",
+          "slower than a horse",
+          "A buffalo runs more slowly than a horse"
+        ],
+        hint: "Đổi chủ ngữ ngược lại và dùng trạng từ so sánh hơn trái nghĩa với 'faster' là 'more slowly than'.",
+        explanation: "Ngựa chạy nhanh hơn trâu => Trâu chạy chậm hơn ngựa (runs more slowly than a horse)."
+      },
+      {
+        id: "u2_w5",
+        type: "rewrite",
+        rootWord: "later",
+        question: "Lan arrived at the harvest festival earlier than Nam.",
+        prefix: "Nam arrived at the harvest festival",
+        accepted: [
+          "later than Lan",
+          "Nam arrived at the harvest festival later than Lan"
+        ],
+        hint: "Trạng từ trái nghĩa với 'earlier' (sớm hơn) là 'later' (muộn hơn).",
+        explanation: "Lan đến sớm hơn Nam => Nam đến muộn hơn Lan (arrived ... later than Lan)."
+      },
+      {
+        id: "u2_w6",
+        type: "rewrite",
+        rootWord: "harder",
+        question: "My father works harder than anyone else in my family.",
+        prefix: "No one in my family works",
+        accepted: [
+          "harder than my father",
+          "as hard as my father",
+          "No one in my family works harder than my father"
+        ],
+        hint: "Dùng so sánh hơn 'harder than my father' hoặc 'as hard as my father'.",
+        explanation: "Bố làm việc chăm chỉ hơn bất kỳ ai => Không ai trong gia đình làm việc chăm chỉ hơn bố."
+      }
+    ],
+    "unit-3": [
+      {
+        id: "u3_w1",
+        type: "word-form",
+        rootWord: "CONCENTRATE",
+        question: "Too much noise makes it difficult for students to keep their _______.",
+        prefix: "",
+        accepted: ["concentration"],
+        hint: "Sau tính từ sở hữu 'their' bắt buộc là một Danh từ.",
+        explanation: "concentrate (động từ: tập trung) -> concentration (danh từ: sự tập trung)."
+      },
+      {
+        id: "u3_w2",
+        type: "word-form",
+        rootWord: "STRESS",
+        question: "Preparing for the final examination can be very _______ for teenagers.",
+        prefix: "",
+        accepted: ["stressful"],
+        hint: "Sau 'can be very' cần một Tính từ chỉ tính chất gây căng thẳng.",
+        explanation: "stress (danh từ/động từ) -> stressful (tính từ: gây áp lực, căng thẳng)."
+      },
+      {
+        id: "u3_w3",
+        type: "word-form",
+        rootWord: "COMPETE",
+        question: "Our school chess club will take part in a national _______ next month.",
+        prefix: "",
+        accepted: ["competition"],
+        hint: "Sau mạo từ 'a' + tính từ 'national' cần một Danh từ chỉ 'cuộc thi đấu'.",
+        explanation: "compete (động từ) -> competition (danh từ: cuộc thi)."
+      },
+      {
+        id: "u3_w4",
+        type: "rewrite",
+        rootWord: "however",
+        question: "Although Phong wanted to join the chess club, he had too much homework.",
+        prefix: "Phong wanted to join the chess club; however,",
+        accepted: [
+          "he had too much homework",
+          "Phong wanted to join the chess club; however, he had too much homework"
+        ],
+        hint: "Khi đã chuyển 'Although' thành trạng từ liên kết '; however,', vế sau giữ nguyên mệnh đề chính.",
+        explanation: "Cấu trúc câu ghép: Mệnh đề 1; however, mệnh đề 2 (tuy nhiên)."
+      },
+      {
+        id: "u3_w5",
+        type: "rewrite",
+        rootWord: "therefore",
+        question: "Mai stayed up too late last night, so she felt exhausted this morning.",
+        prefix: "Mai stayed up too late last night; therefore,",
+        accepted: [
+          "she felt exhausted this morning",
+          "Mai stayed up too late last night; therefore, she felt exhausted this morning"
+        ],
+        hint: "Thay liên từ ', so' bằng '; therefore,' + mệnh đề kết quả.",
+        explanation: "so = ; therefore, (do đó, vì vậy)."
+      },
+      {
+        id: "u3_w6",
+        type: "rewrite",
+        rootWord: "otherwise",
+        question: "You should log in to your account carefully, or someone may steal your password.",
+        prefix: "You should log in to your account carefully; otherwise,",
+        accepted: [
+          "someone may steal your password",
+          "You should log in to your account carefully; otherwise, someone may steal your password"
+        ],
+        hint: "Thay ', or' (hoặc là) bằng '; otherwise,' (nếu không thì).",
+        explanation: "otherwise = nếu không thì (nối 2 mệnh đề trong câu ghép)."
+      }
+    ],
+    "unit-4": [
+      {
+        id: "u4_w1",
+        type: "word-form",
+        rootWord: "TRADITION",
+        question: "The Tay people still preserve their _______ stilt houses and folk songs.",
+        prefix: "",
+        accepted: ["traditional"],
+        hint: "Trước cụm danh từ 'stilt houses' cần một Tính từ.",
+        explanation: "tradition (danh từ) -> traditional (tính từ: truyền thống)."
+      },
+      {
+        id: "u4_w2",
+        type: "word-form",
+        rootWord: "MINOR",
+        question: "Viet Nam has 53 ethnic _______ groups living peacefully together.",
+        prefix: "",
+        accepted: ["minority"],
+        hint: "Cụm từ cố định: 'ethnic minority groups' (các dân tộc thiểu số).",
+        explanation: "ethnic minority = dân tộc thiểu số."
+      },
+      {
+        id: "u4_w3",
+        type: "word-form",
+        rootWord: "MOUNTAIN",
+        question: "Terraced fields are a famous feature of the _______ regions in northern Viet Nam.",
+        prefix: "",
+        accepted: ["mountainous"],
+        hint: "Trước danh từ 'regions' (vùng/miền) cần Tính từ chỉ 'thuộc vùng núi'.",
+        explanation: "mountain (danh từ) -> mountainous (tính từ: có nhiều núi, miền núi)."
+      },
+      {
+        id: "u4_w4",
+        type: "rewrite",
+        rootWord: "How much",
+        question: "What is the price of this hand-woven scarf?",
+        prefix: "How much",
+        accepted: [
+          "is this hand-woven scarf",
+          "does this hand-woven scarf cost",
+          "How much is this hand-woven scarf",
+          "How much does this hand-woven scarf cost"
+        ],
+        hint: "What is the price of + N? = How much is + N? (hoặc How much does + N + cost?).",
+        explanation: "Cấu trúc hỏi giá tiền: How much is this hand-woven scarf?"
+      },
+      {
+        id: "u4_w5",
+        type: "rewrite",
+        rootWord: "How far",
+        question: "What is the distance from Ha Noi to Sa Pa?",
+        prefix: "How far",
+        accepted: [
+          "is it from Ha Noi to Sa Pa",
+          "How far is it from Ha Noi to Sa Pa"
+        ],
+        hint: "What is the distance from A to B? = How far is it from A to B?",
+        explanation: "Cấu trúc hỏi khoảng cách: How far is it from Ha Noi to Sa Pa?"
+      },
+      {
+        id: "u4_w6",
+        type: "rewrite",
+        rootWord: "How many",
+        question: "There are 54 ethnic groups in Viet Nam.",
+        prefix: "How many",
+        accepted: [
+          "ethnic groups are there in Viet Nam",
+          "How many ethnic groups are there in Viet Nam"
+        ],
+        hint: "Đặt câu hỏi số lượng với danh từ đếm được: How many + N(số nhiều) + are there ...?",
+        explanation: "How many ethnic groups are there in Viet Nam?"
+      }
+    ],
+    "unit-5": [
+      {
+        id: "u5_w1",
+        type: "word-form",
+        rootWord: "CELEBRATE",
+        question: "Tet is the most important family _______ in Viet Nam.",
+        prefix: "",
+        accepted: ["celebration"],
+        hint: "Sau tính từ 'important' và danh từ phụ 'family' cần một Danh từ số ít.",
+        explanation: "celebrate (động từ) -> celebration (danh từ: lễ kỷ niệm, dịp lễ)."
+      },
+      {
+        id: "u5_w2",
+        type: "word-form",
+        rootWord: "DECORATE",
+        question: "People hang _______ lanterns in front of their houses during the festival.",
+        prefix: "",
+        accepted: ["decorative"],
+        hint: "Trước danh từ 'lanterns' (đèn lồng) cần Tính từ chỉ 'dùng để trang trí'.",
+        explanation: "decorate (động từ) -> decorative (tính từ: để trang trí)."
+      },
+      {
+        id: "u5_w3",
+        type: "word-form",
+        rootWord: "TRADITION",
+        question: "_______, Vietnamese children receive lucky money in red envelopes at Tet.",
+        prefix: "",
+        accepted: ["traditionally"],
+        hint: "Đứng đầu câu và ngăn cách bởi dấu phẩy cần một Trạng từ (đuôi -ly).",
+        explanation: "Traditionally (Theo truyền thống) là trạng từ đứng đầu câu bổ nghĩa cho cả mệnh đề."
+      },
+      {
+        id: "u5_w4",
+        type: "rewrite",
+        rootWord: "should",
+        question: "It is a good idea for visitors to take off their shoes before entering the temple.",
+        prefix: "Visitors should",
+        accepted: [
+          "take off their shoes before entering the temple",
+          "Visitors should take off their shoes before entering the temple"
+        ],
+        hint: "It is a good idea for sb to V = Sb should + V(nguyên thể).",
+        explanation: "Sau động từ khuyết thiếu 'should' là động từ nguyên thể 'take off...'."
+      },
+      {
+        id: "u5_w5",
+        type: "rewrite",
+        rootWord: "shouldn't",
+        question: "It is not a good idea to sweep the floor on the first day of Tet.",
+        prefix: "You shouldn't",
+        accepted: [
+          "sweep the floor on the first day of Tet",
+          "You shouldn't sweep the floor on the first day of Tet"
+        ],
+        hint: "It is not a good idea to V = You shouldn't + V(nguyên thể).",
+        explanation: "Lời khuyên không nên làm gì: You shouldn't sweep the floor on the first day of Tet."
+      },
+      {
+        id: "u5_w6",
+        type: "rewrite",
+        rootWord: "custom",
+        question: "Our family has a custom of having dinner together on New Year's Eve.",
+        prefix: "It is our family's custom",
+        accepted: [
+          "to have dinner together on New Year's Eve",
+          "It is our family's custom to have dinner together on New Year's Eve"
+        ],
+        hint: "have a custom of + V-ing = It is + one's custom + to V(nguyên thể).",
+        explanation: "Cấu trúc: It is our family's custom to have dinner together on New Year's Eve."
+      }
+    ],
+    "unit-6": [
+      {
+        id: "u6_w1",
+        type: "word-form",
+        rootWord: "INTERACT",
+        question: "Online learning reduces face-to-face _______ between teachers and students.",
+        prefix: "",
+        accepted: ["interaction", "interactions"],
+        hint: "Sau tính từ ghép 'face-to-face' cần một Danh từ chỉ 'sự tương tác'.",
+        explanation: "interact (động từ) -> interaction (danh từ: sự tương tác)."
+      },
+      {
+        id: "u6_w2",
+        type: "word-form",
+        rootWord: "NOMAD",
+        question: "The herders in Mongolia still maintain their _______ lifestyle.",
+        prefix: "",
+        accepted: ["nomadic"],
+        hint: "Trước danh từ 'lifestyle' (lối sống) cần Tính từ chỉ 'du mục'.",
+        explanation: "nomad (danh từ: dân du mục) -> nomadic (tính từ: thuộc về du mục)."
+      },
+      {
+        id: "u6_w3",
+        type: "word-form",
+        rootWord: "DEPEND",
+        question: "Working in groups helps students become more active and _______.",
+        prefix: "",
+        accepted: ["independent"],
+        hint: "Dựa vào nghĩa tích cực cùng với 'active' (năng động) -> Tính từ 'tự lập' (thêm tiền tố in-).",
+        explanation: "independent (tính từ: tự lập, độc lập)."
+      },
+      {
+        id: "u6_w4",
+        type: "rewrite",
+        rootWord: "If ... not",
+        question: "Unless you hurry up, you will miss the school bus.",
+        prefix: "If you",
+        accepted: [
+          "don't hurry up, you will miss the school bus",
+          "do not hurry up, you will miss the school bus",
+          "If you don't hurry up, you will miss the school bus",
+          "If you do not hurry up, you will miss the school bus"
+        ],
+        hint: "Unless + S + V(hiện tại đơn) = If + S + don't/doesn't + V(nguyên thể).",
+        explanation: "Unless you hurry up = If you don't hurry up, you will miss the school bus."
+      },
+      {
+        id: "u6_w5",
+        type: "rewrite",
+        rootWord: "Unless",
+        question: "If she doesn't practice speaking English every day, she won't improve quickly.",
+        prefix: "Unless she",
+        accepted: [
+          "practices speaking English every day, she won't improve quickly",
+          "practises speaking English every day, she won't improve quickly",
+          "Unless she practices speaking English every day, she won't improve quickly",
+          "Unless she practises speaking English every day, she won't improve quickly"
+        ],
+        hint: "Sau 'Unless she' động từ phải chia ở khẳng định thì Hiện tại đơn ngôi thứ 3 số ít (thêm -s).",
+        explanation: "Lưu ý bẫy đề thi: Bỏ 'doesn't' thì động từ 'practice' phải thêm 's' -> 'practices'."
+      },
+      {
+        id: "u6_w6",
+        type: "rewrite",
+        rootWord: "First Conditional",
+        question: "Eat more vegetables and you will have a healthier lifestyle.",
+        prefix: "If you eat",
+        accepted: [
+          "more vegetables, you will have a healthier lifestyle",
+          "If you eat more vegetables, you will have a healthier lifestyle"
+        ],
+        hint: "Câu mệnh lệnh + and + S + will V => Câu điều kiện loại 1: If you + V(htđ), you will + V.",
+        explanation: "If you eat more vegetables, you will have a healthier lifestyle."
+      }
+    ]
+  };
+
+  function getWrittenExercisesForUnit(unitId) {
+    return UNIT_WRITTEN_EXERCISES[unitId] || UNIT_WRITTEN_EXERCISES["unit-1"] || [];
+  }
+
+  function normalizeWrittenString(str) {
+    return (str || "")
+      .toLowerCase()
+      .replace(/[.,?!;:"']/g, (m) => (m === "'" ? "'" : ""))
+      .replace(/\bdon't\b/g, "do not")
+      .replace(/\bdoesn't\b/g, "does not")
+      .replace(/\bisn't\b/g, "is not")
+      .replace(/\baren't\b/g, "are not")
+      .replace(/\bwon't\b/g, "will not")
+      .replace(/\bcan't\b/g, "cannot")
+      .replace(/\bi'm\b/g, "i am")
+      .replace(/\bit's\b/g, "it is")
+      .replace(/['’]/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function isWrittenAnswerCorrect(item, rawInput) {
+    const userNorm = normalizeWrittenString(rawInput);
+    if (!userNorm) return false;
+    return (item.accepted || []).some((acc) => normalizeWrittenString(acc) === userNorm);
+  }
+
+  function renderUnitWrittenSubTab(unit) {
+    const list = getWrittenExercisesForUnit(unit.id);
+    let correctCount = 0;
+    let checkedCount = 0;
+
+    list.forEach((item) => {
+      if (state.writtenChecked[item.id] || state.writtenSubmittedAll) {
+        checkedCount++;
+        if (isWrittenAnswerCorrect(item, state.writtenAnswers[item.id])) {
+          correctCount++;
+        }
+      }
+    });
+
+    const cardsHtml = list
+      .map((item, idx) => {
+        const userVal = state.writtenAnswers[item.id] || "";
+        const isChecked = !!state.writtenChecked[item.id] || state.writtenSubmittedAll;
+        const isRight = isChecked && isWrittenAnswerCorrect(item, userVal);
+        const showHint = !!state.writtenHints[item.id];
+
+        return `
+          <div class="written-card ${isChecked ? (isRight ? "correct" : "wrong") : ""}">
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:10px;">
+              <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                <span class="q-num">Câu ${idx + 1}</span>
+                <span class="written-type-badge ${item.type === "word-form" ? "word-form" : "rewrite"}">
+                  ${
+                    item.type === "word-form"
+                      ? `🔤 Chia dạng từ trong ngoặc (${item.rootWord})`
+                      : `✍️ Viết lại câu (${item.rootWord})`
+                  }
+                </span>
+              </div>
+
+              <div style="display:flex; align-items:center; gap:8px;">
+                <button
+                  type="button"
+                  class="btn btn-outline btn-sm"
+                  onclick="toggleWrittenHint('${item.id}')"
+                >
+                  💡 ${showHint ? "Ẩn gợi ý" : "Gợi ý cách làm"}
+                </button>
+                ${
+                  isChecked
+                    ? `<span style="font-size:0.8rem; font-weight:800; padding:4px 10px; border-radius:99px; background:${
+                        isRight ? "#D1FAE5" : "#FEE2E2"
+                      }; color:${isRight ? "#065F46" : "#991B1B"};">
+                        ${isRight ? "✔ Chính xác" : "✘ Chưa đúng"}
+                      </span>`
+                    : ""
+                }
+              </div>
+            </div>
+
+            <div class="written-prompt-box">
+              <div style="font-size:0.76rem; font-weight:800; color:var(--text-muted); text-transform:uppercase; margin-bottom:3px;">
+                ${item.type === "word-form" ? "Đề bài (Cho dạng đúng của từ trong ngoặc):" : "Câu gốc (Viết lại câu sao cho nghĩa không đổi):"}
+              </div>
+              <div style="font-weight:800; color:var(--text-main);">
+                ${item.question}
+                ${item.type === "word-form" ? `<strong style="color:#D97706; margin-left:6px;">(${item.rootWord})</strong>` : ""}
+              </div>
+            </div>
+
+            ${
+              showHint
+                ? `
+                <div style="margin-bottom:12px; padding:9px 12px; border-radius:8px; background:#FFFBEB; border:1px solid #FDE68A; color:#92400E; font-size:0.84rem;">
+                  💡 <strong>Gợi ý:</strong> ${item.hint}
+                </div>
+              `
+                : ""
+            }
+
+            <div class="written-input-wrap">
+              ${
+                item.prefix
+                  ? `<span class="written-prefix-label">➔ ${item.prefix}</span>`
+                  : `<span class="written-prefix-label">➔ Từ cần điền:</span>`
+              }
+              <input
+                type="text"
+                class="written-text-input"
+                placeholder="${
+                  item.prefix
+                    ? "Gõ tiếp vế còn lại của câu vào đây..."
+                    : "Gõ từ đã chia đúng dạng vào đây..."
+                }"
+                value="${userVal.replace(/"/g, "&quot;")}"
+                oninput="state.writtenAnswers['${item.id}'] = this.value"
+                onkeydown="if(event.key === 'Enter'){ event.preventDefault(); checkSingleWrittenQuestion('${item.id}'); }"
+              />
+              <button
+                type="button"
+                class="btn btn-primary btn-sm"
+                style="padding:10px 16px;"
+                onclick="checkSingleWrittenQuestion('${item.id}')"
+              >
+                ✔ Chấm câu này
+              </button>
+            </div>
+
+            ${
+              isChecked
+                ? `
+                <div style="margin-top:12px; padding:12px 14px; border-radius:10px; background:${
+                  isRight ? "#ECFDF5" : "#FEF2F2"
+                }; border:1px solid ${isRight ? "#A7F3D0" : "#FECACA"}; font-size:0.86rem;">
+                  <div style="font-weight:800; color:${isRight ? "#065F46" : "#991B1B"}; margin-bottom:4px;">
+                    ${
+                      isRight
+                        ? `🎉 Tuyệt vời! Đáp án hoàn chỉnh: "${item.prefix ? item.prefix + " " + item.accepted[0] : item.accepted[0]}"`
+                        : `✔ Đáp án đúng chuẩn: "${item.prefix ? item.prefix + " " + item.accepted[0] : item.accepted[0]}"`
+                    }
+                  </div>
+                  <div style="color:#334155;">💡 <strong>Giải thích ngữ pháp:</strong> ${item.explanation}</div>
+                </div>
+              `
+                : ""
+            }
+          </div>
+        `;
+      })
+      .join("");
+
+    return `
+      <div style="background:linear-gradient(135deg, #1E1B4B 0%, #4338CA 100%); color:white; border-radius:18px; padding:22px 26px; margin-bottom:20px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:16px;">
+        <div>
+          <span style="font-size:0.75rem; font-weight:800; background:rgba(255,255,255,0.18); padding:3px 10px; border-radius:99px; text-transform:uppercase;">
+            ✏️ LUYỆN TỰ LUẬN TRỌNG TÂM • UNIT ${unit.number}
+          </span>
+          <h3 style="font-size:1.35rem; font-weight:900; margin:6px 0 4px;">
+            Chia Dạng Từ (Word Form) & Viết Lại Câu (Sentence Rewrite)
+          </h3>
+          <p style="font-size:0.86rem; color:#E0E7FF;">
+            Chiếm 20%–30% số điểm trong đề thi thật trên trường • Hệ thống tự động chấm thông minh (chấp nhận cả viết tắt và viết đầy đủ).
+          </p>
+        </div>
+
+        <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+          <span style="background:rgba(255,255,255,0.14); padding:8px 14px; border-radius:10px; font-weight:800; font-size:0.88rem;">
+            🎯 Đúng: ${correctCount} / ${list.length} câu
+          </span>
+          <button class="btn btn-white" style="color:#312E81; font-weight:800;" onclick="submitAllUnitWritten('${unit.id}')">
+            ✅ Chấm Toàn Bộ (${list.length} câu)
+          </button>
+          <button class="btn btn-outline" style="color:white; border-color:rgba(255,255,255,0.35);" onclick="resetUnitWritten('${unit.id}')">
+            🔄 Làm lại
+          </button>
+        </div>
+      </div>
+
+      ${cardsHtml}
+    `;
+  }
+
+  window.toggleWrittenHint = function (qId) {
+    state.writtenHints[qId] = !state.writtenHints[qId];
+    renderApp();
+  };
+
+  window.checkSingleWrittenQuestion = function (qId) {
+    state.writtenChecked[qId] = true;
+    const unit = (window.STUDY_DATA.units || []).find((u) => u.id === state.selectedUnitId);
+    const list = getWrittenExercisesForUnit(unit ? unit.id : "unit-1");
+    const item = list.find((x) => x.id === qId);
+    if (item) {
+      if (isWrittenAnswerCorrect(item, state.writtenAnswers[qId])) {
+        showToast("🎉 Chính xác! Em viết câu rất chuẩn ngữ pháp!", "success");
+      } else {
+        showToast("❌ Chưa chính xác, em xem đáp án chuẩn và lời giải bên dưới nhé!", "warning");
+      }
+    }
+    renderApp();
+  };
+
+  window.submitAllUnitWritten = function (unitId) {
+    const list = getWrittenExercisesForUnit(unitId);
+    let right = 0;
+    list.forEach((item) => {
+      state.writtenChecked[item.id] = true;
+      if (isWrittenAnswerCorrect(item, state.writtenAnswers[item.id])) {
+        right++;
+      }
+    });
+    state.writtenSubmittedAll = true;
+    showToast(`✍️ Hoàn thành chấm bài tự luận: Đúng ${right}/${list.length} câu!`, "success");
+    renderApp();
+  };
+
+  window.resetUnitWritten = function (unitId) {
+    const list = getWrittenExercisesForUnit(unitId);
+    list.forEach((item) => {
+      delete state.writtenAnswers[item.id];
+      delete state.writtenChecked[item.id];
+      delete state.writtenHints[item.id];
+    });
+    state.writtenSubmittedAll = false;
+    renderApp();
+  };
+
+  // =========================================================================
   // RENDER THẺ CÂU HỎI CHUẨN PHÒNG THI (ANSWER BUBBLES A / B / C / D)
   // =========================================================================
   function parseOptionBubble(optText, fallbackIdx) {
@@ -2706,9 +3707,10 @@
     const exams = window.STUDY_DATA.exams || [];
     const filtered =
       state.examFilter === "all" ? exams : exams.filter((e) => e.category === state.examFilter);
+    const mistakeCount = Object.keys(state.mistakes || {}).length;
 
     return `
-      <div class="section-header" style="margin-bottom:22px;">
+      <div class="section-header" style="margin-bottom:18px;">
         <div>
           <h2>📝 Phòng Luyện Đề Kiểm Tra & Thi Học Kì 1</h2>
           <p style="font-size:0.9rem; color:var(--text-muted);">
@@ -2727,6 +3729,32 @@
           </button>
           <button class="unit-pill ${state.examFilter === "final" ? "active" : ""}" onclick="setExamFilter('final')">
             🏆 Đề Cuối Kì 1
+          </button>
+        </div>
+      </div>
+
+      <!-- BANNER ĐỀ THÔNG MINH ĐẢO ĐÁP ÁN CHỐNG HỌC VẸT (MỤC 2) -->
+      <div class="smart-adaptive-banner">
+        <div style="max-width:660px;">
+          <div style="display:inline-flex; align-items:center; gap:6px; background:rgba(245, 158, 11, 0.22); color:#FDE68A; border:1px solid rgba(245, 158, 11, 0.4); padding:4px 12px; border-radius:999px; font-size:0.76rem; font-weight:800; margin-bottom:8px;">
+            <span>🔀 CHỐNG HỌC VẸT VỊ TRÍ ĐÁP ÁN</span>
+            <span>•</span>
+            <span>Đang có ${mistakeCount} câu sai trong sổ tay</span>
+          </div>
+          <h3 style="font-size:1.35rem; font-weight:900; margin-bottom:6px;">
+            ⚡ Tạo Đề Khắc Phục Lỗ Hổng Thông Minh (Tự Động Đảo Câu & Đảo A/B/C/D)
+          </h3>
+          <p style="font-size:0.88rem; color:#E0E7FF; line-height:1.55;">
+            Hệ thống tự động rút trích các câu em từng làm sai + các chuyên đề em còn yếu, sau đó <strong>xáo trộn thứ tự câu hỏi và đổi vị trí 4 phương án A, B, C, D</strong>. Câu sai nào làm đúng trong đề này sẽ tự động được gỡ khỏi Sổ tay!
+          </p>
+        </div>
+
+        <div style="display:flex; gap:10px; flex-wrap:wrap;">
+          <button class="btn-admin-gold" style="padding:12px 18px; font-size:0.9rem;" onclick="startSmartAdaptiveQuiz(10)">
+            ⚡ Đề Thông Minh 10 Câu (10 Phút)
+          </button>
+          <button class="btn-admin-glass" style="padding:12px 18px; font-size:0.9rem;" onclick="startSmartAdaptiveQuiz(15)">
+            🔥 Đề Thông Minh 15 Câu (15 Phút)
           </button>
         </div>
       </div>
@@ -2818,6 +3846,160 @@
     renderApp();
   };
 
+  function shuffleArrayClone(arr) {
+    const copy = [...arr];
+    for (let i = copy.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      const tmp = copy[i];
+      copy[i] = copy[j];
+      copy[j] = tmp;
+    }
+    return copy;
+  }
+
+  // Đảo vị trí 4 phương án A, B, C, D và gán lại nhãn A/B/C/D chuẩn để chống học vẹt vị trí đáp án
+  function cloneAndShuffleQuestionOptions(q) {
+    const letters = ["A", "B", "C", "D"];
+    const rawOpts = (q.options || []).map((opt, idx) => {
+      const cleanContent = String(opt).replace(/^[A-D][\.\)\:\-]\s*/i, "").trim();
+      return {
+        cleanContent,
+        isCorrect: idx === q.answer
+      };
+    });
+
+    const shuffledOpts = shuffleArrayClone(rawOpts);
+    let newCorrectIdx = 0;
+    const formattedOptions = shuffledOpts.map((item, newIdx) => {
+      if (item.isCorrect) newCorrectIdx = newIdx;
+      return `${letters[newIdx]}. ${item.cleanContent}`;
+    });
+
+    return {
+      ...q,
+      originalQuestionId: q.originalQuestionId || q.id,
+      options: formattedOptions,
+      answer: newCorrectIdx
+    };
+  }
+
+  // MỤC 2: Khởi tạo Đề Khắc Phục Lỗ Hổng Thông Minh (Đảo thứ tự câu & Đảo vị trí A/B/C/D)
+  window.startSmartAdaptiveQuiz = function (modeOrCount = 10) {
+    const mistakeItems = Object.values(state.mistakes || {});
+    let pool = [];
+
+    if (modeOrCount === "mistakes" && mistakeItems.length > 0) {
+      pool = mistakeItems.map((m) => ({
+        id: m.id,
+        originalQuestionId: m.id,
+        section: `📓 Câu từng sai (${m.source || "Đề thi"})`,
+        question: m.question,
+        options: m.options,
+        answer: m.answer,
+        explanation: m.explanation
+      }));
+    } else {
+      const targetCount = typeof modeOrCount === "number" ? modeOrCount : 10;
+      const usedIds = new Set();
+
+      // 1. Ưu tiên lấy tối đa 70% câu từ Sổ Tay Câu Sai của học sinh
+      const shuffledMistakes = shuffleArrayClone(mistakeItems);
+      const maxFromMistakes = Math.min(shuffledMistakes.length, Math.ceil(targetCount * 0.7));
+      for (let i = 0; i < maxFromMistakes; i++) {
+        const m = shuffledMistakes[i];
+        usedIds.add(m.id);
+        pool.push({
+          id: m.id,
+          originalQuestionId: m.id,
+          section: `📓 Câu từng sai (${m.source || "Đề thi"})`,
+          question: m.question,
+          options: m.options,
+          answer: m.answer,
+          explanation: m.explanation
+        });
+      }
+
+      // 2. Lấy thêm câu hỏi từ các Unit và Đề thi để đủ số lượng câu
+      const allSystemQuestions = [];
+      (window.STUDY_DATA.units || []).forEach((u) => {
+        (u.practice || []).forEach((q) => {
+          allSystemQuestions.push({
+            ...q,
+            section: q.section || `Unit ${u.number}: ${u.title}`
+          });
+        });
+      });
+      (window.STUDY_DATA.exams || []).forEach((ex) => {
+        (ex.questions || []).forEach((q) => {
+          allSystemQuestions.push({
+            ...q,
+            section: q.section || ex.title
+          });
+        });
+      });
+
+      const shuffledSystem = shuffleArrayClone(allSystemQuestions);
+      for (const q of shuffledSystem) {
+        if (pool.length >= targetCount) break;
+        if (!usedIds.has(q.id)) {
+          usedIds.add(q.id);
+          pool.push({
+            ...q,
+            originalQuestionId: q.id
+          });
+        }
+      }
+    }
+
+    if (pool.length === 0) {
+      showToast("Không tìm thấy câu hỏi để tạo đề!", "warning");
+      return;
+    }
+
+    // Xáo trộn thứ tự câu hỏi VÀ xáo trộn vị trí đáp án A, B, C, D của từng câu
+    const finalQuestions = shuffleArrayClone(pool).map((q) => cloneAndShuffleQuestionOptions(q));
+    const durationMins = Math.max(5, finalQuestions.length);
+
+    const smartExam = {
+      id: "smart_adaptive_" + Date.now(),
+      isSmartAdaptive: true,
+      adaptiveMode: modeOrCount,
+      title:
+        modeOrCount === "mistakes"
+          ? `🔀 Đề Gỡ Lỗi Sai Đảo Đáp Án (${finalQuestions.length} câu)`
+          : `⚡ Đề Thông Minh Khắc Phục Lỗ Hổng (${finalQuestions.length} câu • Đảo A/B/C/D)`,
+      category: "15m",
+      badge: "🔀 Đảo Đáp Án",
+      durationMinutes: durationMins,
+      scope: "Cá nhân hóa từ Sổ tay câu sai & Chuyên đề trọng tâm",
+      questions: finalQuestions
+    };
+
+    stopExamTimer();
+    state.currentTab = "exams";
+    state.activeExam = smartExam;
+    state.examAnswers = {};
+    state.examSubmitted = false;
+    state.examTotalSeconds = durationMins * 60;
+    state.examSecondsLeft = durationMins * 60;
+
+    state.examTimerId = setInterval(() => {
+      if (state.examSecondsLeft > 0) {
+        state.examSecondsLeft--;
+        const timerEl = document.getElementById("exam-timer-display");
+        if (timerEl) timerEl.textContent = formatTime(state.examSecondsLeft);
+      } else {
+        stopExamTimer();
+        showToast("⏰ Đã hết thời gian làm bài! Hệ thống tự động chấm điểm bài thi.", "warning");
+        submitActiveExam(true);
+      }
+    }, 1000);
+
+    showToast(`🔀 Đã tạo đề ${finalQuestions.length} câu với vị trí đáp án A/B/C/D được đảo ngẫu nhiên!`, "info");
+    renderApp();
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
   window.startExamById = function (examId) {
     const ex = (window.STUDY_DATA.exams || []).find((e) => e.id === examId);
     if (!ex) return;
@@ -2873,6 +4055,10 @@
       })
       .join("");
 
+    const retryActionCall = ex.isSmartAdaptive
+      ? `startSmartAdaptiveQuiz(${typeof ex.adaptiveMode === "number" ? ex.adaptiveMode : `'${ex.adaptiveMode || 10}'`})`
+      : `startExamById('${ex.id}')`;
+
     return `
       <div style="background:white; border:1px solid var(--border); border-radius:14px; padding:12px 18px; margin-bottom:18px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;">
         <button class="btn btn-outline btn-sm" onclick="exitExamRoom()">⬅ Quay lại danh sách đề thi</button>
@@ -2899,7 +4085,7 @@
                 ${score10}
                 <span>/ 10 điểm</span>
               </div>
-              <button class="btn btn-white" onclick="startExamById('${ex.id}')">🔄 Thi lại đề này</button>
+              <button class="btn btn-white" onclick="${retryActionCall}">🔄 Thi lại (Đảo câu mới)</button>
             </div>
           </div>
         `
@@ -2973,6 +4159,7 @@
 
     stopExamTimer();
     let correct = 0;
+    let resolvedMistakesCount = 0;
     const answersRecord = {};
     const answersList = [];
 
@@ -2980,17 +4167,24 @@
       const chosen = state.examAnswers[q.id];
       answersRecord[q.id] = chosen;
       const isRight = chosen === q.answer;
+      const targetMistakeKey = q.originalQuestionId || q.id;
+
       answersList.push({
-        questionId: q.id,
+        questionId: targetMistakeKey,
         selectedOptionIndex: chosen !== undefined ? chosen : -1,
         isCorrect: isRight
       });
 
       if (isRight) {
         correct++;
+        // Nếu đang làm Đề Thông Minh mà trả lời đúng câu từng sai -> Tự động xóa khỏi Sổ tay câu sai!
+        if (ex.isSmartAdaptive && state.mistakes[targetMistakeKey]) {
+          delete state.mistakes[targetMistakeKey];
+          resolvedMistakesCount++;
+        }
       } else {
-        state.mistakes[q.id] = {
-          id: q.id,
+        state.mistakes[targetMistakeKey] = {
+          id: targetMistakeKey,
           source: ex.title,
           question: q.question,
           options: q.options,
@@ -3036,7 +4230,14 @@
     }
 
     state.examSubmitted = true;
-    showToast(`Hoàn thành bài thi! Điểm của em: ${score10}/10 điểm.`, "success");
+    if (resolvedMistakesCount > 0) {
+      showToast(
+        `🎉 Điểm: ${score10}/10! Đã tự động gỡ ${resolvedMistakesCount} câu làm đúng khỏi Sổ tay câu sai!`,
+        "success"
+      );
+    } else {
+      showToast(`Hoàn thành bài thi! Điểm của em: ${score10}/10 điểm.`, "success");
+    }
     renderApp();
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -3222,12 +4423,17 @@
             Em đang có ${allMistakes.length} câu cần ôn tập lại
           </h2>
           <p style="font-size:0.88rem; color:#FEE2E2;">
-            Đáp án đã được ẩn mặc định để em tự chọn lại ngay trên từng câu — hoặc bấm làm bài kiểm tra tổng hợp!
+            Đáp án đã được ẩn mặc định để em tự chọn lại ngay trên từng câu — hoặc bấm thi lại với vị trí đáp án A/B/C/D đảo ngẫu nhiên!
           </p>
         </div>
-        <button class="btn btn-white" style="color:#DC2626; font-weight:800;" onclick="startMistakePractice()">
-          🔥 Thi lại toàn bộ ${allMistakes.length} câu sai ➔
-        </button>
+        <div style="display:flex; gap:10px; flex-wrap:wrap;">
+          <button class="btn-admin-gold" style="padding:11px 16px;" onclick="startSmartAdaptiveQuiz('mistakes')">
+            🔀 Thi Đảo Đáp Án A/B/C/D (${allMistakes.length} câu)
+          </button>
+          <button class="btn btn-white" style="color:#DC2626; font-weight:800;" onclick="startMistakePractice()">
+            🔥 Làm lại nhanh tại chỗ ➔
+          </button>
+        </div>
       </div>
 
       <div class="mistake-toolbar">
