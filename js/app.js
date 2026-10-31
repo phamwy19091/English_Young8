@@ -326,6 +326,356 @@
   }
 
   // =========================================================================
+  // HỆ THỐNG ĐỊNH TUYẾN URL & LỊCH SỬ DUYỆT TRANG (GO BACK / GO FORWARD ROUTER)
+  // =========================================================================
+  const routerState = {
+    isRestoringFromUrl: false,
+    lastKnownHash: "",
+    historyStack: [],
+    historyCursor: -1
+  };
+
+  function buildRouteHashFromState() {
+    const isLoggedIn = window.EY8_Supabase && window.EY8_Supabase.isLoggedIn();
+    if (!isLoggedIn) {
+      return state.authScreenTab === "register" ? "#/register" : "#/login";
+    }
+
+    const isAdmin = window.EY8_Supabase.isAdmin();
+    if (isAdmin && !state.adminPreviewStudentMode) {
+      if (state.adminTab === "admin-assignments") return "#/admin/assignments";
+      if (state.adminTab === "admin-content") return "#/admin/content";
+      if (state.adminTab === "admin-users") return "#/admin/users";
+      return "#/admin/monitor";
+    }
+
+    const prefix = isAdmin && state.adminPreviewStudentMode ? "#/preview" : "#";
+    if (state.currentTab === "unit-study") {
+      return `${prefix}/unit/${state.selectedUnitId || "unit-1"}/${state.unitSubTab || "vocab"}`;
+    }
+    if (state.currentTab === "exams") {
+      if (state.activeExam && state.activeExam.id) {
+        return `${prefix}/exams/room/${state.activeExam.id}`;
+      }
+      return `${prefix}/exams/${state.examFilter || "all"}`;
+    }
+    if (state.currentTab === "mistakes") {
+      return state.mistakePracticeActive ? `${prefix}/mistakes/practice` : `${prefix}/mistakes`;
+    }
+    if (state.currentTab === "student-progress") {
+      return `${prefix}/progress`;
+    }
+    return `${prefix}/dashboard`;
+  }
+
+  function getPageTitleFromState() {
+    const isLoggedIn = window.EY8_Supabase && window.EY8_Supabase.isLoggedIn();
+    if (!isLoggedIn) {
+      return state.authScreenTab === "register"
+        ? "Đăng ký Học sinh — English Young 8"
+        : "Đăng nhập — English Young 8";
+    }
+
+    const isAdmin = window.EY8_Supabase.isAdmin();
+    if (isAdmin && !state.adminPreviewStudentMode) {
+      if (state.adminTab === "admin-assignments") return "🎯 Giao Bài Tập — Admin English Young 8";
+      if (state.adminTab === "admin-content") return "🗂️ Quản Lý Đề & Câu Hỏi — Admin English Young 8";
+      if (state.adminTab === "admin-users") return "👥 Tài Khoản & Hệ Thống — Admin English Young 8";
+      return "📊 Giám Sát Học Sinh — Admin English Young 8";
+    }
+
+    if (state.currentTab === "unit-study") {
+      const unit = (window.STUDY_DATA.units || []).find((u) => u.id === state.selectedUnitId);
+      const subLabel =
+        state.unitSubTab === "grammar"
+          ? "Ngữ pháp"
+          : state.unitSubTab === "practice"
+          ? "Bài tập"
+          : "Từ vựng & Flashcard";
+      return `📚 Unit ${unit ? unit.number + ": " + unit.title : ""} (${subLabel}) — English Young 8`;
+    }
+    if (state.currentTab === "exams") {
+      if (state.activeExam) {
+        return `⏱️ Đang làm: ${state.activeExam.title} — English Young 8`;
+      }
+      return "📝 Phòng Luyện Đề Thi — English Young 8";
+    }
+    if (state.currentTab === "mistakes") {
+      return state.mistakePracticeActive
+        ? "🔥 Ôn Tập Câu Sai — English Young 8"
+        : "📓 Sổ Tay Câu Sai — English Young 8";
+    }
+    if (state.currentTab === "student-progress") {
+      return "🏆 Thành Tích Của Em — English Young 8";
+    }
+    return "🏠 Bàn Học Của Em — English Young 8";
+  }
+
+  function syncUrlWithState() {
+    const targetHash = buildRouteHashFromState();
+    const pageTitle = getPageTitleFromState();
+    document.title = pageTitle;
+
+    if (routerState.isRestoringFromUrl) {
+      routerState.lastKnownHash = targetHash;
+      return;
+    }
+
+    const currentHash = window.location.hash || "";
+    if (!currentHash || currentHash === "#") {
+      try {
+        window.history.replaceState({ hash: targetHash }, pageTitle, targetHash);
+      } catch (e) {
+        window.location.hash = targetHash;
+      }
+      routerState.lastKnownHash = targetHash;
+      routerState.historyStack = [targetHash];
+      routerState.historyCursor = 0;
+    } else if (currentHash !== targetHash) {
+      try {
+        window.history.pushState({ hash: targetHash }, pageTitle, targetHash);
+      } catch (e) {
+        window.location.hash = targetHash;
+      }
+      routerState.lastKnownHash = targetHash;
+      routerState.historyStack = routerState.historyStack.slice(0, routerState.historyCursor + 1);
+      routerState.historyStack.push(targetHash);
+      routerState.historyCursor = routerState.historyStack.length - 1;
+    }
+  }
+
+  function applyRouteFromHash(rawHash) {
+    const hash = (rawHash || window.location.hash || "").trim();
+    if (!hash || hash === "#" || hash === routerState.lastKnownHash) return false;
+
+    const parts = hash.replace(/^#\/?/, "").split("/").filter(Boolean);
+    if (parts.length === 0) return false;
+
+    // Bảo vệ khi học sinh đang làm dở bài thi mà bấm nút Back của trình duyệt
+    const isTargetSameExamRoom =
+      state.activeExam &&
+      ((parts[0] === "exams" && parts[1] === "room" && parts[2] === state.activeExam.id) ||
+        (parts[0] === "preview" && parts[1] === "exams" && parts[2] === "room" && parts[3] === state.activeExam.id));
+
+    if (state.activeExam && !state.examSubmitted && !isTargetSameExamRoom) {
+      if (!confirm("Em đang làm dở đề thi. Thoát ra sẽ hủy lượt làm bài này. Em có chắc không?")) {
+        try {
+          window.history.pushState({ hash: routerState.lastKnownHash }, document.title, routerState.lastKnownHash);
+        } catch (e) {}
+        return false;
+      }
+      stopExamTimer();
+      state.activeExam = null;
+    }
+
+    const isLoggedIn = window.EY8_Supabase && window.EY8_Supabase.isLoggedIn();
+    if (!isLoggedIn) {
+      state.authScreenTab = parts[0] === "register" ? "register" : "login";
+      routerState.lastKnownHash = hash;
+      return true;
+    }
+
+    const isAdmin = window.EY8_Supabase.isAdmin();
+    if (parts[0] === "admin" && isAdmin) {
+      state.adminPreviewStudentMode = false;
+      const sub = parts[1] || "monitor";
+      if (sub === "assignments") state.adminTab = "admin-assignments";
+      else if (sub === "content") state.adminTab = "admin-content";
+      else if (sub === "users") state.adminTab = "admin-users";
+      else state.adminTab = "admin-monitor";
+    } else {
+      if (isAdmin) {
+        state.adminPreviewStudentMode = true;
+        if (parts[0] === "preview") parts.shift();
+      }
+      const section = parts[0] || "dashboard";
+      if (section === "unit") {
+        state.currentTab = "unit-study";
+        const uId = parts[1] || state.selectedUnitId || "unit-1";
+        const sTab = parts[2] || "vocab";
+        if (uId !== state.selectedUnitId) {
+          state.selectedUnitId = uId;
+          state.unitQuizAnswers = {};
+          state.unitQuizSubmitted = false;
+          resetFlashcardPositionForUnit(uId);
+        }
+        state.unitSubTab = ["vocab", "grammar", "practice"].includes(sTab) ? sTab : "vocab";
+      } else if (section === "exams") {
+        state.currentTab = "exams";
+        if (parts[1] === "room" && parts[2]) {
+          const exId = parts[2];
+          if (!state.activeExam || state.activeExam.id !== exId) {
+            const ex = (window.STUDY_DATA.exams || []).find((e) => e.id === exId);
+            if (ex) {
+              stopExamTimer();
+              state.activeExam = ex;
+              state.examAnswers = {};
+              state.examSubmitted = false;
+              state.examTotalSeconds = ex.durationMinutes * 60;
+              state.examSecondsLeft = ex.durationMinutes * 60;
+              state.examTimerId = setInterval(() => {
+                if (state.examSecondsLeft > 0) {
+                  state.examSecondsLeft--;
+                  const timerEl = document.getElementById("exam-timer-display");
+                  if (timerEl) timerEl.textContent = formatTime(state.examSecondsLeft);
+                } else {
+                  stopExamTimer();
+                  alert("⏰ Đã hết thời gian làm bài! Hệ thống sẽ tự động chấm điểm bài thi của em.");
+                  submitActiveExam(true);
+                }
+              }, 1000);
+            }
+          }
+        } else {
+          stopExamTimer();
+          state.activeExam = null;
+          const f = parts[1] || "all";
+          state.examFilter = ["all", "15m", "midterm", "final"].includes(f) ? f : "all";
+        }
+      } else if (section === "mistakes") {
+        state.currentTab = "mistakes";
+        state.mistakePracticeActive = parts[1] === "practice";
+      } else if (section === "progress") {
+        state.currentTab = "student-progress";
+      } else {
+        state.currentTab = "dashboard";
+      }
+    }
+
+    const foundIdx = routerState.historyStack.indexOf(hash);
+    if (foundIdx !== -1) {
+      routerState.historyCursor = foundIdx;
+    } else {
+      routerState.historyStack.push(hash);
+      routerState.historyCursor = routerState.historyStack.length - 1;
+    }
+    routerState.lastKnownHash = hash;
+    return true;
+  }
+
+  window.goHistoryBack = function () {
+    window.history.back();
+  };
+
+  window.goHistoryForward = function () {
+    window.history.forward();
+  };
+
+  function renderSubpageBreadcrumbBar() {
+    const canGoBack = routerState.historyCursor > 0 || window.history.length > 1;
+    const canGoForward =
+      routerState.historyCursor >= 0 && routerState.historyCursor < routerState.historyStack.length - 1;
+
+    const isAdmin = window.EY8_Supabase && window.EY8_Supabase.isAdmin();
+    let trailHtml = "";
+
+    if (isAdmin && !state.adminPreviewStudentMode) {
+      const adminTitles = {
+        "admin-monitor": "📊 Giám Sát Học Sinh",
+        "admin-assignments": "🎯 Giao Bài Tập",
+        "admin-content": "🗂️ Quản Lý Đề & Câu Hỏi",
+        "admin-users": "👥 Tài Khoản & Hệ Thống"
+      };
+      trailHtml = `
+        <button class="breadcrumb-link" onclick="switchAdminTab('admin-monitor')">👑 Cổng Quản Trị Admin</button>
+        <span class="breadcrumb-sep">›</span>
+        <span class="breadcrumb-current">${adminTitles[state.adminTab] || "Quản trị"}</span>
+      `;
+    } else {
+      if (state.currentTab === "dashboard") {
+        trailHtml = `<span class="breadcrumb-current">🏠 Bàn Học Của Em (Trang chủ)</span>`;
+      } else if (state.currentTab === "unit-study") {
+        const unit = (window.STUDY_DATA.units || []).find((u) => u.id === state.selectedUnitId);
+        const subName =
+          state.unitSubTab === "grammar"
+            ? "📐 2. Ngữ âm & Ngữ pháp"
+            : state.unitSubTab === "practice"
+            ? "✍️ 3. Bài tập thực hành"
+            : "🗂️ 1. Từ vựng & Flashcard";
+        trailHtml = `
+          <button class="breadcrumb-link" onclick="switchMainTab('dashboard')">🏠 Bàn Học Của Em</button>
+          <span class="breadcrumb-sep">›</span>
+          <button class="breadcrumb-link" onclick="openUnitWithSubTab('${state.selectedUnitId}', 'vocab')">
+            📚 Unit ${unit ? unit.number + ": " + unit.title : ""}
+          </button>
+          <span class="breadcrumb-sep">›</span>
+          <span class="breadcrumb-current">${subName}</span>
+        `;
+      } else if (state.currentTab === "exams") {
+        if (state.activeExam) {
+          trailHtml = `
+            <button class="breadcrumb-link" onclick="switchMainTab('dashboard')">🏠 Bàn Học Của Em</button>
+            <span class="breadcrumb-sep">›</span>
+            <button class="breadcrumb-link" onclick="exitExamRoom()">📝 Phòng Luyện Đề Thi</button>
+            <span class="breadcrumb-sep">›</span>
+            <span class="breadcrumb-current">⏱️ ${state.activeExam.title}</span>
+          `;
+        } else {
+          trailHtml = `
+            <button class="breadcrumb-link" onclick="switchMainTab('dashboard')">🏠 Bàn Học Của Em</button>
+            <span class="breadcrumb-sep">›</span>
+            <span class="breadcrumb-current">📝 Phòng Luyện Đề Thi</span>
+          `;
+        }
+      } else if (state.currentTab === "mistakes") {
+        trailHtml = `
+          <button class="breadcrumb-link" onclick="switchMainTab('dashboard')">🏠 Bàn Học Của Em</button>
+          <span class="breadcrumb-sep">›</span>
+          ${
+            state.mistakePracticeActive
+              ? `<button class="breadcrumb-link" onclick="exitMistakePractice()">📓 Sổ Tay Câu Sai</button>
+                 <span class="breadcrumb-sep">›</span>
+                 <span class="breadcrumb-current">🔥 Làm lại câu sai</span>`
+              : `<span class="breadcrumb-current">📓 Sổ Tay Câu Sai</span>`
+          }
+        `;
+      } else if (state.currentTab === "student-progress") {
+        trailHtml = `
+          <button class="breadcrumb-link" onclick="switchMainTab('dashboard')">🏠 Bàn Học Của Em</button>
+          <span class="breadcrumb-sep">›</span>
+          <span class="breadcrumb-current">🏆 Thành Tích Của Em</span>
+        `;
+      }
+    }
+
+    // Ẩn thanh breadcrumb ở Trang chủ nếu người dùng chưa chuyển qua trang nào khác
+    if (
+      !(isAdmin && !state.adminPreviewStudentMode) &&
+      state.currentTab === "dashboard" &&
+      routerState.historyStack.length <= 1
+    ) {
+      return "";
+    }
+
+    return `
+      <div class="subpage-breadcrumb-bar">
+        <div class="nav-history-group">
+          <button
+            class="nav-history-btn"
+            onclick="goHistoryBack()"
+            ${!canGoBack ? "disabled" : ""}
+            title="Quay lại trang trước (Nút Back trình duyệt hoặc Alt + ⬅)"
+          >
+            ⬅ Quay lại
+          </button>
+          <button
+            class="nav-history-btn"
+            onclick="goHistoryForward()"
+            ${!canGoForward ? "disabled" : ""}
+            title="Tiến tới trang tiếp theo (Nút Forward trình duyệt hoặc Alt + ➡)"
+          >
+            Tiếp ➡
+          </button>
+        </div>
+
+        <div class="breadcrumb-trail">
+          ${trailHtml}
+        </div>
+      </div>
+    `;
+  }
+
+  // =========================================================================
   // RENDER TOÀN TRANG (PHÂN LUỒNG: AUTH SCREEN | ADMIN PORTAL | STUDENT PORTAL)
   // =========================================================================
   function renderApp() {
@@ -337,6 +687,9 @@
     const root = document.getElementById("app-root");
 
     if (!root) return;
+
+    // Đồng bộ URL Hash & Lịch sử trình duyệt (hỗ trợ nút Back / Forward & F5)
+    syncUrlWithState();
 
     const isLoggedIn = window.EY8_Supabase && window.EY8_Supabase.isLoggedIn();
 
@@ -355,6 +708,7 @@
     const currentUser = window.EY8_Supabase.getCurrentUser();
     const isAdmin = window.EY8_Supabase.isAdmin();
     const stats = getSummaryStats();
+    const breadcrumbBarHtml = renderSubpageBreadcrumbBar();
 
     // 2. NẾU LÀ ADMIN (VÀ KHÔNG Ở CHẾ ĐỘ XEM THỬ HỌC SINH) -> HIỂN THỊ ADMIN PORTAL
     if (isAdmin && !state.adminPreviewStudentMode) {
@@ -409,13 +763,13 @@
       }
 
       if (state.adminTab === "admin-monitor") {
-        root.innerHTML = renderAdminMonitorView();
+        root.innerHTML = breadcrumbBarHtml + renderAdminMonitorView();
       } else if (state.adminTab === "admin-assignments") {
-        root.innerHTML = renderAdminAssignmentsView();
+        root.innerHTML = breadcrumbBarHtml + renderAdminAssignmentsView();
       } else if (state.adminTab === "admin-content") {
-        root.innerHTML = renderAdminContentView();
+        root.innerHTML = breadcrumbBarHtml + renderAdminContentView();
       } else if (state.adminTab === "admin-users") {
-        root.innerHTML = renderAdminUsersView();
+        root.innerHTML = breadcrumbBarHtml + renderAdminUsersView();
       }
       return;
     }
@@ -486,15 +840,15 @@
     }
 
     if (state.currentTab === "dashboard") {
-      root.innerHTML = renderDashboard(stats);
+      root.innerHTML = breadcrumbBarHtml + renderDashboard(stats);
     } else if (state.currentTab === "unit-study") {
-      root.innerHTML = renderUnitStudy();
+      root.innerHTML = breadcrumbBarHtml + renderUnitStudy();
     } else if (state.currentTab === "exams") {
-      root.innerHTML = renderExamsView();
+      root.innerHTML = breadcrumbBarHtml + renderExamsView();
     } else if (state.currentTab === "mistakes") {
-      root.innerHTML = renderMistakesView();
+      root.innerHTML = breadcrumbBarHtml + renderMistakesView();
     } else if (state.currentTab === "student-progress") {
-      root.innerHTML = renderStudentProgressView(stats);
+      root.innerHTML = breadcrumbBarHtml + renderStudentProgressView(stats);
     }
   }
 
@@ -3801,9 +4155,26 @@
     }
   }
 
-  // Khởi tạo khi trang tải xong
+  // Lắng nghe sự kiện bấm nút Go Back / Go Forward trên trình duyệt
+  function handleBrowserNavigationChange() {
+    const changed = applyRouteFromHash(window.location.hash);
+    if (changed) {
+      routerState.isRestoringFromUrl = true;
+      renderApp();
+      routerState.isRestoringFromUrl = false;
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  }
+
+  window.addEventListener("popstate", handleBrowserNavigationChange);
+  window.addEventListener("hashchange", handleBrowserNavigationChange);
+
+  // Khởi tạo khi trang tải xong (giữ nguyên trang đang mở khi nhấn F5)
   window.addEventListener("DOMContentLoaded", async () => {
     loadActiveUserLocalProgress();
+    if (window.location.hash && window.location.hash !== "#") {
+      applyRouteFromHash(window.location.hash);
+    }
     renderApp();
     await loadSystemStoreAndApply();
     if (window.EY8_Supabase && window.EY8_Supabase.isLoggedIn()) {
@@ -3812,6 +4183,9 @@
         await loadAdminInspectedStudent(state.adminSelectedStudent);
       } else {
         await syncCloudData(true);
+      }
+      if (window.location.hash && window.location.hash !== "#") {
+        applyRouteFromHash(window.location.hash);
       }
       renderApp();
     }
