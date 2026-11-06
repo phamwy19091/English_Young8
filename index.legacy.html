@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>English Young 8 - Hệ thống Ôn tập & Quản lý Học tập Lớp 8</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/styles.css" />
+  <!-- Supabase JS Client -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+  <!-- Thanh thông báo khi Admin đang xem thử giao diện Học sinh -->
+  <div id="admin-preview-bar-root"></div>
+
+  <!-- Thanh điều hướng chính (Tự động đổi giao diện Học Sinh vs Admin) -->
+  <header class="main-header" id="main-header">
+    <div class="header-inner">
+      <div class="brand" onclick="handleBrandClick()">
+        <div class="brand-logo" id="header-brand-logo">E8</div>
+        <div class="brand-text">
+          <h1 id="header-brand-title">English Young 8</h1>
+          <p id="header-brand-subtitle">Global Success • Học kì 1 (Unit 1 – Unit 6)</p>
+        </div>
+      </div>
+
+      <!-- Menu điều hướng động theo vai trò (Học sinh hoặc Quản trị viên) -->
+      <nav class="nav-tabs" id="main-nav-tabs"></nav>
+
+      <!-- Khung hiển thị tài khoản & Đăng xuất -->
+      <div id="header-user-container"></div>
+    </div>
+  </header>
+
+  <!-- Nội dung chính được render động bởi js/app.js -->
+  <main class="container" id="app-root">
+    <div style="text-align:center; padding: 60px 20px; color: #64748B;">
+      Đang tải hệ thống English Young 8...
+    </div>
+  </main>
+
+  <!-- Root cho các cửa sổ Modal Popup & Toast Notification -->
+  <div id="modal-root"></div>
+  <div id="toast-root" class="toast-container"></div>
+  <div id="mobile-nav-root"></div>
+
+  <footer class="footer" id="main-footer">
+    <p><strong>English Young 8</strong> — Hệ thống Ôn tập & Quản lý Học tập Tiếng Anh 8 Global Success.</p>
+  </footer>
+
+  <!-- Nạp dữ liệu Học kì 1 (Unit 1-3, Unit 4-6 và Bộ đề thi HK1) -->
+  <script src="data/units_1_3.js"></script>
+  <script src="data/units_4_6.js"></script>
+  <script src="data/exams_hk1.js"></script>
+  <!-- Nạp module Supabase Cloud & Auth -->
+  <script src="js/supabase-client.js"></script>
+  <!-- Nạp logic điều khiển ứng dụng chính -->
+  <script src="js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,1 @@
+export { examsData } from './exams';
