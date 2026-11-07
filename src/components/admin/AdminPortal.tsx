@@ -14,6 +14,7 @@ import { StudentSnapshot, HomeworkAssignment, CustomQuestion } from '../../types
 import { UserSession } from '../../types/user';
 import { unitsData } from '../../data/units';
 import { examsData } from '../../data/exams';
+import { ExamResultModal } from '../exam/ExamResultModal';
 import {
   Users,
   Calendar,
@@ -51,6 +52,7 @@ export const AdminPortal: React.FC = () => {
   const [selectedStudent, setSelectedStudent] = useState<string>('em_lop8');
   const [studentSnapshot, setStudentSnapshot] = useState<StudentSnapshot | null>(null);
   const [loadingSnapshot, setLoadingSnapshot] = useState<boolean>(false);
+  const [inspectedAttempt, setInspectedAttempt] = useState<any>(null);
 
   // Homework Assignment State
   const [assignments, setAssignments] = useState<HomeworkAssignment[]>([]);
@@ -757,6 +759,7 @@ export const AdminPortal: React.FC = () => {
                       <th className="py-2.5">Điểm số</th>
                       <th className="py-2.5">Thời gian</th>
                       <th className="py-2.5">Ngày nộp bài</th>
+                      <th className="py-2.5 text-right">Chi tiết</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -773,6 +776,15 @@ export const AdminPortal: React.FC = () => {
                           <td className="py-2.5 font-black text-indigo-600">{scoreVal !== undefined ? `${scoreVal}/10` : '--'}</td>
                           <td className="py-2.5 text-slate-500">{timeStr}</td>
                           <td className="py-2.5 text-slate-400">{dateStr}</td>
+                          <td className="py-2.5 text-right">
+                            <button
+                              onClick={() => setInspectedAttempt(att)}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-[11px] transition-colors"
+                            >
+                              <Eye className="w-3 h-3" />
+                              <span>Soi bài</span>
+                            </button>
+                          </td>
                         </tr>
                       );
                     })}
@@ -781,6 +793,12 @@ export const AdminPortal: React.FC = () => {
               </div>
             )}
           </div>
+
+          <ExamResultModal
+            isOpen={Boolean(inspectedAttempt)}
+            attempt={inspectedAttempt}
+            onClose={() => setInspectedAttempt(null)}
+          />
         </div>
       )}
 

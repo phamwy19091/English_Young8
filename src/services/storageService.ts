@@ -1,4 +1,5 @@
 import { StudentSnapshot, ExamAttempt, MistakeItem, SystemConfig } from '../types/storage';
+import { UnitQuestion } from '../types/curriculum';
 import { UserSession } from '../types/user';
 
 // Exact localStorage keys preserved from legacy codebase
@@ -168,6 +169,138 @@ export function getSnapshotKey(username: string): string {
   return `${STORAGE_KEYS.SNAPSHOT_PREFIX}${username}`;
 }
 
+export function normalizeMistakeItem(rawM: any): MistakeItem | null {
+  if (!rawM || typeof rawM !== 'object') return null;
+
+  const id = String(rawM.id || `mistake_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`);
+  const questionId = String(rawM.questionId || rawM.id || id);
+
+  const wrongAnswer = typeof rawM.wrongAnswer === 'number'
+    ? rawM.wrongAnswer
+    : typeof rawM.wrongChoice === 'number'
+    ? rawM.wrongChoice
+    : -1;
+
+  let questionObj: UnitQuestion;
+  if (rawM.question && typeof rawM.question === 'object' && Array.isArray(rawM.question.options)) {
+    questionObj = {
+      id: rawM.question.id || questionId,
+      section: rawM.question.section || rawM.section || 'General',
+      question: rawM.question.question || rawM.question.prompt || '',
+      options: rawM.question.options,
+      answer: typeof rawM.question.answer === 'number' ? rawM.question.answer : 0,
+      explanation: rawM.question.explanation || '',
+      passage: rawM.question.passage
+    };
+  } else {
+    // Legacy shape where question is a string and options are at top level
+    const questionText = typeof rawM.question === 'string' ? rawM.question : (rawM.prompt || '');
+    const options = Array.isArray(rawM.options) ? rawM.options : [];
+    const answer = typeof rawM.answer === 'number' ? rawM.answer : 0;
+    const explanation = rawM.explanation || '';
+    const section = rawM.section || 'General';
+
+    questionObj = {
+      id: questionId,
+      section,
+      question: questionText,
+      options,
+      answer,
+      explanation,
+      passage: rawM.passage
+    };
+  }
+
+  let sourceType: 'unit' | 'exam' = 'unit';
+  let sourceId: string | number = '1';
+  if (rawM.sourceType === 'unit' || rawM.sourceType === 'exam') {
+    sourceType = rawM.sourceType;
+    sourceId = rawM.sourceId ?? '1';
+  } else if (typeof rawM.source === 'string') {
+    const srcLower = rawM.source.toLowerCase();
+    if (srcLower.includes('exam') || srcLower.includes('đề') || srcLower.includes('thi')) {
+      sourceType = 'exam';
+      sourceId = rawM.source;
+    } else {
+      sourceType = 'unit';
+      const match = rawM.source.match(/unit\s*(\d+)/i);
+      sourceId = match ? match[1] : rawM.source;
+    }
+  }
+
+  return {
+    id,
+    sourceType,
+    sourceId,
+    questionId,
+    question: questionObj,
+    wrongAnswer,
+    userNote: rawM.userNote || '',
+    addedAt: rawM.addedAt || rawM.savedAt || new Date().toISOString(),
+    resolved: Boolean(rawM.resolved),
+    resolvedAt: rawM.resolvedAt
+  };
+}
+
+export function normalizeExamAttempt(raw: any): ExamAttempt {
+  if (!raw || typeof raw !== 'object') {
+    return {
+      id: `att_${Date.now()}`,
+      examId: 'unknown',
+      examTitle: 'Bài kiểm tra',
+      score: 0,
+      totalQuestions: 10,
+      timeSpentSeconds: 0,
+      answers: {},
+      submittedAt: new Date().toISOString()
+    };
+  }
+
+  const id = String(raw.id || `att_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`);
+  const examId = String(raw.examId || raw.exercise_id || 'unknown');
+  const examTitle = String(raw.examTitle || raw.exercises?.title || `Bài kiểm tra ${examId}`);
+
+  let score = 0;
+  if (typeof raw.score === 'number' && !isNaN(raw.score)) {
+    score = raw.score;
+  } else if (typeof raw.score10 === 'number' && !isNaN(raw.score10)) {
+    score = raw.score10;
+  } else if (typeof raw.correct === 'number' && typeof raw.total === 'number' && raw.total > 0) {
+    score = Number(((raw.correct / raw.total) * 10).toFixed(1));
+  } else if (typeof raw.raw_score === 'number' && typeof raw.total_questions === 'number' && raw.total_questions > 0) {
+    score = Number(((raw.raw_score / raw.total_questions) * 10).toFixed(1));
+  }
+
+  const totalQuestions = Number(raw.totalQuestions || raw.total || raw.total_questions || (Array.isArray(raw.questions) ? raw.questions.length : 10)) || 10;
+
+  let timeSpentSeconds = 0;
+  if (typeof raw.timeSpentSeconds === 'number' && !isNaN(raw.timeSpentSeconds)) {
+    timeSpentSeconds = raw.timeSpentSeconds;
+  } else if (typeof raw.time_spent_seconds === 'number' && !isNaN(raw.time_spent_seconds)) {
+    timeSpentSeconds = raw.time_spent_seconds;
+  }
+
+  const submittedAt = String(raw.submittedAt || raw.completed_at || raw.date || new Date().toISOString());
+  const answers = raw.answers && typeof raw.answers === 'object' ? raw.answers : {};
+
+  return {
+    id,
+    examId,
+    examTitle,
+    score,
+    totalQuestions,
+    timeSpentSeconds,
+    answers,
+    submittedAt,
+    ...(raw.questions ? { questions: raw.questions } : {}),
+    ...(raw.score10 !== undefined ? { score10: raw.score10 } : { score10: score }),
+    ...(raw.correct !== undefined ? { correct: raw.correct } : {}),
+    ...(raw.raw_score !== undefined ? { raw_score: raw.raw_score } : {}),
+    ...(raw.timeSpent ? { timeSpent: raw.timeSpent } : {}),
+    ...(raw.date ? { date: raw.date } : {})
+  } as any;
+}
+
 function migrateLegacyData(username: string): StudentSnapshot | null {
   const getLegacyRaw = (baseKey: string): string | null => {
     return safeGetItem(`${baseKey}_${username}`) ?? safeGetItem(baseKey);
@@ -223,9 +356,8 @@ function migrateLegacyData(username: string): StudentSnapshot | null {
   if (rawExams) {
     try {
       const parsedExams = JSON.parse(rawExams);
-      if (Array.isArray(parsedExams)) {
-        snapshot.examHistory = parsedExams;
-      }
+      const rawList = Array.isArray(parsedExams) ? parsedExams : Object.values(parsedExams || {});
+      snapshot.examHistory = rawList.map(normalizeExamAttempt);
     } catch (e) {
       console.warn(`Failed to parse legacy exam history for user ${username}:`, e);
     }
@@ -235,11 +367,8 @@ function migrateLegacyData(username: string): StudentSnapshot | null {
   if (rawMistakes) {
     try {
       const parsedMistakes = JSON.parse(rawMistakes);
-      if (Array.isArray(parsedMistakes)) {
-        snapshot.mistakes = parsedMistakes;
-      } else if (parsedMistakes && typeof parsedMistakes === 'object') {
-        snapshot.mistakes = Object.values(parsedMistakes) as MistakeItem[];
-      }
+      const rawList = Array.isArray(parsedMistakes) ? parsedMistakes : Object.values(parsedMistakes || {});
+      snapshot.mistakes = (rawList as any[]).map(normalizeMistakeItem).filter((m: MistakeItem | null): m is MistakeItem => m !== null);
     } catch (e) {
       console.warn(`Failed to parse legacy mistakes for user ${username}:`, e);
     }
@@ -285,12 +414,11 @@ export function getStudentSnapshot(username: string): StudentSnapshot {
       learnedVocab = Object.keys(parsed.learnedVocab).filter((k) => !!parsed.learnedVocab[k]);
     }
 
-    // Normalize mistakes (convert legacy object/dictionary to array if needed)
+    // Normalize mistakes
     let mistakes: MistakeItem[] = [];
-    if (Array.isArray(parsed.mistakes)) {
-      mistakes = parsed.mistakes;
-    } else if (parsed.mistakes && typeof parsed.mistakes === 'object') {
-      mistakes = Object.values(parsed.mistakes) as MistakeItem[];
+    if (parsed.mistakes) {
+      const rawList = Array.isArray(parsed.mistakes) ? parsed.mistakes : Object.values(parsed.mistakes || {});
+      mistakes = (rawList as any[]).map(normalizeMistakeItem).filter((m: MistakeItem | null): m is MistakeItem => m !== null);
     }
 
     // Normalize unitScores (handle keys like 'unit-1', 'unit-2' or 1, 2)
@@ -306,11 +434,18 @@ export function getStudentSnapshot(username: string): StudentSnapshot {
       }
     }
 
+    // Normalize examHistory
+    let examHistory: ExamAttempt[] = [];
+    if (parsed.examHistory) {
+      const rawList = Array.isArray(parsed.examHistory) ? parsed.examHistory : Object.values(parsed.examHistory || {});
+      examHistory = rawList.map(normalizeExamAttempt);
+    }
+
     const snapshot: StudentSnapshot = {
       username,
       learnedVocab,
       unitScores,
-      examHistory: Array.isArray(parsed.examHistory) ? parsed.examHistory : [],
+      examHistory,
       mistakes,
       streak: {
         currentStreak: Number(parsed.streak?.currentStreak) || 1,

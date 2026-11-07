@@ -158,9 +158,24 @@ export const ProgressAnalytics: React.FC = () => {
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {examHistory.map((att, idx) => {
-                  const minutes = Math.floor((att.timeSpentSeconds || 0) / 60);
-                  const seconds = (att.timeSpentSeconds || 0) % 60;
-                  const timeStr = `${minutes}p ${seconds}s`;
+                  const scoreVal = typeof att.score === 'number' && !isNaN(att.score)
+                    ? att.score
+                    : typeof (att as any).score10 === 'number' && !isNaN((att as any).score10)
+                    ? (att as any).score10
+                    : 0;
+
+                  const timeSec = typeof att.timeSpentSeconds === 'number' && !isNaN(att.timeSpentSeconds)
+                    ? att.timeSpentSeconds
+                    : typeof (att as any).time_spent_seconds === 'number' && !isNaN((att as any).time_spent_seconds)
+                    ? (att as any).time_spent_seconds
+                    : 0;
+                  const minutes = Math.floor(timeSec / 60);
+                  const seconds = timeSec % 60;
+                  const timeStr = typeof (att as any).timeSpent === 'string' && (att as any).timeSpent !== 'Hoàn thành'
+                    ? (att as any).timeSpent
+                    : `${minutes}p ${seconds}s`;
+
+                  const dateStr = att.submittedAt?.split('T')[0] || (att as any).date || '--';
 
                   return (
                     <tr key={att.id || idx} className="hover:bg-slate-50/80 transition-colors">
@@ -170,21 +185,21 @@ export const ProgressAnalytics: React.FC = () => {
                       <td className="py-3.5 text-center">
                         <span
                           className={`inline-block px-2.5 py-0.5 rounded-md font-black text-xs ${
-                            att.score >= 8.0
+                            scoreVal >= 8.0
                               ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                              : att.score >= 5.0
+                              : scoreVal >= 5.0
                               ? 'bg-amber-50 text-amber-700 border border-amber-200'
                               : 'bg-rose-50 text-rose-700 border border-rose-200'
                           }`}
                         >
-                          {att.score}/10
+                          {scoreVal}/10
                         </span>
                       </td>
                       <td className="py-3.5 text-center text-slate-600 font-mono">
                         {timeStr}
                       </td>
                       <td className="py-3.5 text-center text-slate-500">
-                        {att.submittedAt?.split('T')[0] || '--'}
+                        {dateStr}
                       </td>
                       <td className="py-3.5 text-right pr-2">
                         <button

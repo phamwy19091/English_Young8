@@ -36,15 +36,18 @@ export const MistakesNotebook: React.FC<MistakesNotebookProps> = ({ onStartCusto
   const [retryFeedback, setRetryFeedback] = useState<Record<string, { isCorrect: boolean; chosenIdx: number }>>({});
 
   const filteredMistakes = mistakes.filter(m => {
+    if (!m) return false;
     if (filterType !== 'all' && m.sourceType !== filterType) return false;
     if (filterStatus === 'unresolved' && m.resolved) return false;
     if (filterStatus === 'resolved' && !m.resolved) return false;
 
     if (search.trim()) {
       const q = search.toLowerCase();
-      const matchQ = (m.question?.question || '').toLowerCase().includes(q);
-      const matchExpl = (m.question?.explanation || '').toLowerCase().includes(q);
-      const matchSource = String(m.sourceId).toLowerCase().includes(q);
+      const qText = typeof m.question === 'object' ? (m.question?.question || '') : String(m.question || '');
+      const qExpl = typeof m.question === 'object' ? (m.question?.explanation || '') : String((m as any).explanation || '');
+      const matchQ = qText.toLowerCase().includes(q);
+      const matchExpl = qExpl.toLowerCase().includes(q);
+      const matchSource = String(m.sourceId || (m as any).source || '').toLowerCase().includes(q);
       if (!matchQ && !matchExpl && !matchSource) return false;
     }
 
@@ -224,7 +227,20 @@ export const MistakesNotebook: React.FC<MistakesNotebookProps> = ({ onStartCusto
       ) : (
         <div className="space-y-6">
           {filteredMistakes.map((m) => {
-            const q = m.question;
+            const q = (m.question && typeof m.question === 'object' ? m.question : {}) as any;
+            const questionText = q.question || (typeof m.question === 'string' ? m.question : (m as any).prompt || 'Câu hỏi');
+            const options: string[] = Array.isArray(q.options)
+              ? q.options
+              : Array.isArray((m as any).options)
+              ? (m as any).options
+              : [];
+            const correctAnswer = typeof q.answer === 'number'
+              ? q.answer
+              : typeof (m as any).answer === 'number'
+              ? (m as any).answer
+              : 0;
+            const explanationText = q.explanation || (m as any).explanation || '';
+
             const isRevealed = globalReveal || Boolean(revealedIds[m.id]);
             const feedback = retryFeedback[m.id];
             const isResolved = m.resolved;
@@ -244,10 +260,10 @@ export const MistakesNotebook: React.FC<MistakesNotebookProps> = ({ onStartCusto
                 <div className="flex items-center justify-between mb-4">
                   <div className="flex items-center gap-2">
                     <span className="px-2.5 py-0.5 rounded-md text-[10px] font-black uppercase bg-slate-100 text-slate-600">
-                      {m.sourceType === 'unit' ? `Unit ${m.sourceId}` : `Đề thi: ${m.sourceId}`}
+                      {m.sourceType === 'unit' ? `Unit ${m.sourceId}` : `Đề thi: ${m.sourceId || (m as any).source}`}
                     </span>
                     <span className="text-xs text-slate-400 font-medium">
-                      {m.addedAt?.split('T')[0]}
+                      {(m.addedAt || (m as any).savedAt || '')?.split('T')[0]}
                     </span>
                   </div>
 
@@ -287,14 +303,14 @@ export const MistakesNotebook: React.FC<MistakesNotebookProps> = ({ onStartCusto
                 {/* Question Prompt */}
                 <div
                   className="text-base font-bold text-slate-900 mb-5 leading-relaxed"
-                  dangerouslySetInnerHTML={{ __html: q.question }}
+                  dangerouslySetInnerHTML={{ __html: questionText }}
                 />
 
                 {/* Options (Spoiler-Free In-Card Retry) */}
                 <div className="space-y-2.5 mb-5">
-                  {q.options.map((opt, optIdx) => {
+                  {options.map((opt, optIdx) => {
                     const wasWrongChoice = m.wrongAnswer === optIdx;
-                    const isCorrectAnswer = q.answer === optIdx;
+                    const isCorrectAnswer = correctAnswer === optIdx;
                     const isRetryChosen = feedback?.chosenIdx === optIdx;
 
                     let optStyle = 'border-slate-200 bg-slate-50/60 hover:bg-slate-100 text-slate-800';
@@ -343,10 +359,10 @@ export const MistakesNotebook: React.FC<MistakesNotebookProps> = ({ onStartCusto
                 )}
 
                 {/* Explanation container */}
-                {isRevealed && q.explanation && (
+                {isRevealed && explanationText && (
                   <div className="p-4 rounded-2xl bg-indigo-50/70 border border-indigo-100 text-xs text-indigo-950 mb-4 space-y-1">
                     <strong className="block font-bold text-indigo-900">💡 Lời giải thích chi tiết:</strong>
-                    <p className="leading-relaxed">{q.explanation}</p>
+                    <p className="leading-relaxed" dangerouslySetInnerHTML={{ __html: explanationText }} />
                   </div>
                 )}
 

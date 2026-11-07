@@ -112,7 +112,13 @@ export const MistakeProvider: React.FC<{ children: ReactNode }> = ({ children })
       const item = current.find(m => m.id === mistakeId);
       if (!item) return { isCorrect: false };
 
-      const isCorrect = optionIdx === item.question.answer;
+      const correctAnswer = typeof item.question?.answer === 'number'
+        ? item.question.answer
+        : typeof (item as any).answer === 'number'
+        ? (item as any).answer
+        : 0;
+
+      const isCorrect = optionIdx === correctAnswer;
       if (isCorrect) {
         item.resolved = true;
         item.resolvedAt = new Date().toISOString();
@@ -188,7 +194,9 @@ export const MistakeProvider: React.FC<{ children: ReactNode }> = ({ children })
 
   const generateBatchQuiz = useCallback(
     (count?: number) => {
-      const pool = mistakes.filter(m => !m.resolved).map(m => m.question);
+      const pool = mistakes
+        .filter(m => !m.resolved && m.question && Array.isArray(m.question.options) && m.question.options.length > 0)
+        .map(m => m.question);
       const shuffled = shuffleArray(pool);
       const selected = count ? shuffled.slice(0, count) : shuffled;
       return selected.map(q => cloneAndShuffleOptions(q));

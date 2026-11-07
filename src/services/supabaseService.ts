@@ -1,5 +1,5 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { StudentSnapshot, SystemConfig } from '../types/storage';
+import { StudentSnapshot, MistakeItem, SystemConfig } from '../types/storage';
 import { UserSession } from '../types/user';
 import {
   STORAGE_KEYS,
@@ -11,7 +11,9 @@ import {
   saveLocalUsers,
   addLocalUser,
   updateLocalUser,
-  deleteLocalUser
+  deleteLocalUser,
+  normalizeMistakeItem,
+  normalizeExamAttempt
 } from './storageService';
 
 export const DEFAULT_SUPABASE_CONFIG = {
@@ -485,43 +487,38 @@ class SupabaseService {
 
       // 3. examHistory
       let examHistory: any[] = [];
-      if (Array.isArray(source.examHistory) && source.examHistory.length > 0) {
-        examHistory = source.examHistory;
-      } else if (localSnapshot.examHistory?.length > 0) {
-        examHistory = localSnapshot.examHistory;
-      }
+      const rawExams = source.examHistory || localSnapshot.examHistory || [];
+      const rawExList = Array.isArray(rawExams) ? rawExams : Object.values(rawExams);
+      examHistory = rawExList.map(normalizeExamAttempt);
 
       // If relational quiz attempts exist, make sure they are in examHistory
       if (relationalAttempts.length > 0) {
         const existingExamIds = new Set(examHistory.map(h => h.id || `${h.examId}_${h.date}`));
         for (const att of relationalAttempts) {
           if (!existingExamIds.has(att.id)) {
-            examHistory.push({
+            examHistory.push(normalizeExamAttempt({
               id: att.id,
               examId: att.exercise_id,
               examTitle: `Bài kiểm tra ${att.exercise_id}`,
               score: att.score,
               score10: att.score,
+              raw_score: att.raw_score,
               correct: att.raw_score,
-              total: att.total_questions,
-              timeSpentSeconds: att.time_spent_seconds || 0,
+              total_questions: att.total_questions,
+              time_spent_seconds: att.time_spent_seconds || 0,
               date: new Date(att.completed_at).toLocaleString('vi-VN'),
               submittedAt: att.completed_at,
               answers: {}
-            });
+            }));
           }
         }
       }
 
       // 4. mistakes
       let mistakes: any[] = [];
-      if (Array.isArray(source.mistakes)) {
-        mistakes = source.mistakes;
-      } else if (source.mistakes && typeof source.mistakes === 'object') {
-        mistakes = Object.values(source.mistakes);
-      } else if (localSnapshot.mistakes?.length > 0) {
-        mistakes = localSnapshot.mistakes;
-      }
+      const rawMistakes = source.mistakes || localSnapshot.mistakes || [];
+      const rawMList = Array.isArray(rawMistakes) ? rawMistakes : Object.values(rawMistakes);
+      mistakes = (rawMList as any[]).map(normalizeMistakeItem).filter((m: any): m is MistakeItem => m !== null);
 
       const mergedSnapshot: StudentSnapshot = {
         username: userRow.username || username,
