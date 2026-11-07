@@ -15,6 +15,7 @@ import { UserSession } from '../../types/user';
 import { unitsData } from '../../data/units';
 import { examsData } from '../../data/exams';
 import { ExamResultModal } from '../exam/ExamResultModal';
+import { TestGenerator } from './TestGenerator';
 import {
   Users,
   Calendar,
@@ -28,14 +29,15 @@ import {
   ShieldCheck,
   Download,
   CheckCircle2,
-  AlertTriangle
+  AlertTriangle,
+  Printer
 } from 'lucide-react';
 
 export const AdminPortal: React.FC = () => {
   const { switchUser } = useAuth();
   const { showToast } = useToast();
 
-  const [activeTab, setActiveTab] = useState<'users' | 'monitor' | 'assignments' | 'qbank' | 'cloud'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'monitor' | 'assignments' | 'qbank' | 'cloud' | 'testgen'>('users');
 
   // Users Management State
   const [allUsers, setAllUsers] = useState<UserSession[]>([]);
@@ -434,6 +436,18 @@ export const AdminPortal: React.FC = () => {
           >
             <Cloud className="w-4 h-4" />
             <span>Cấu hình Cloud & Sao Lưu</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('testgen')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
+              activeTab === 'testgen'
+                ? 'bg-purple-600 text-white shadow-md'
+                : 'text-slate-400 hover:text-white hover:bg-white/5'
+            }`}
+          >
+            <Printer className="w-4 h-4" />
+            <span>Tạo & Xuất Đề Thi Word/PDF</span>
           </button>
         </div>
       </div>
@@ -1168,6 +1182,11 @@ export const AdminPortal: React.FC = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* TAB 6: TEST GENERATOR & WORD/PDF EXPORTER */}
+      {activeTab === 'testgen' && (
+        <TestGenerator />
       )}
     </div>
   );
