@@ -33,7 +33,7 @@ export const Header: React.FC<HeaderProps> = ({ currentHash }) => {
           <div>
             <div className="logo text-lg font-bold text-slate-900 leading-tight">English Young 8</div>
             <p className="text-[11px] text-indigo-600 font-medium hidden sm:block">
-              {isAdmin ? 'Trung Tâm Quản Trị & Giám Sát' : 'Global Success • Lớp 8 HK1'}
+              {isAdmin ? 'Trung Tâm Quản Trị & Giám Sát' : 'Global Success • Lớp 8 & Vào 10'}
             </p>
           </div>
         </a>
@@ -64,6 +64,16 @@ export const Header: React.FC<HeaderProps> = ({ currentHash }) => {
                 <Eye className="w-4 h-4 text-indigo-600" />
                 <span>Góc Nhìn Học Sinh</span>
               </a>
+              <a
+                href="#/games"
+                className={`nav-link px-3.5 py-1.5 rounded-lg text-sm font-semibold transition-all ${
+                  isTabActive('games')
+                    ? 'active bg-amber-50 text-amber-800 shadow-2xs font-bold'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                }`}
+              >
+                🎮 Game Hub
+              </a>
             </>
           ) : (
             /* STUDENT NAVIGATION TABS */
@@ -86,7 +96,7 @@ export const Header: React.FC<HeaderProps> = ({ currentHash }) => {
                     : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
                 }`}
               >
-                6 Unit
+                12 Unit
               </a>
               <a
                 href="#/exams"
@@ -97,6 +107,16 @@ export const Header: React.FC<HeaderProps> = ({ currentHash }) => {
                 }`}
               >
                 Luyện Đề
+              </a>
+              <a
+                href="#/games"
+                className={`nav-link px-3 py-1.5 rounded-lg text-sm font-semibold transition-all ${
+                  isTabActive('games')
+                    ? 'active bg-amber-50 text-amber-800 border border-amber-200 shadow-2xs font-bold'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                }`}
+              >
+                🎮 Trò Chơi
               </a>
               <a
                 href="#/mistakes"

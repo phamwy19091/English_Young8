@@ -96,7 +96,7 @@ export const StudentDashboard: React.FC = () => {
           </div>
           <div>
             <div className="text-2xl font-black text-slate-900">
-              {Object.keys(unitScores).length}/6
+              {Object.keys(unitScores).length}/{unitsData.length}
             </div>
             <div className="text-xs text-slate-400 font-medium">Unit đã kiểm tra</div>
           </div>
@@ -162,6 +162,29 @@ export const StudentDashboard: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Game Arcade Quick Launch Banner */}
+      <div className="bg-gradient-to-r from-amber-500/10 via-orange-500/10 to-indigo-500/10 rounded-3xl border-2 border-amber-300/80 p-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-2xs">
+        <div className="space-y-1">
+          <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-900 text-[11px] font-black">
+            <span>🎮 MỚI: EDUTAINMENT ARCADE</span>
+          </div>
+          <h3 className="text-lg font-black text-slate-900">
+            Trung Tâm Trò Chơi Học Tập – Tích Lũy XP & Săn Huy Hiệu!
+          </h3>
+          <p className="text-xs text-slate-600">
+            5 Mini-Games: Ghép Cặp Siêu Tốc, Mưa Sao Băng Từ Vựng, Bậc Thầy Sắp Xếp Câu, Đấu Trường Tri Thức & Phân Loại Ngữ Âm.
+          </p>
+        </div>
+
+        <a
+          href="#/games"
+          className="inline-flex items-center gap-2 px-5 py-3 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-black text-xs shadow-md shadow-amber-500/20 shrink-0 transition-all"
+        >
+          <span>Khám phá 5 Trò Chơi</span>
+          <ArrowRight className="w-4 h-4" />
+        </a>
+      </div>
 
       {/* Curriculum Units Hub */}
       <div>

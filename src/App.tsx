@@ -13,6 +13,7 @@ import { MistakesNotebook } from './components/mistakes/MistakesNotebook';
 import { ProgressAnalytics } from './components/analytics/ProgressAnalytics';
 import { AdminPortal } from './components/admin/AdminPortal';
 import { AuthPortal } from './components/auth/AuthPortal';
+import { GameHub } from './components/games/GameHub';
 import { ExamData } from './types/curriculum';
 import { examsData } from './data/exams';
 
@@ -117,6 +118,10 @@ const AppContent: React.FC = () => {
           }}
         />
       );
+    }
+
+    if (hash.includes('games')) {
+      return <GameHub />;
     }
 
     if (hash.includes('progress')) {
