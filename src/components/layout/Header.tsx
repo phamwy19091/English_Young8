@@ -2,7 +2,19 @@ import React from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useStudy } from '../../context/StudyContext';
 import { useMistakes } from '../../context/MistakeContext';
-import { Flame, ShieldCheck, LogOut, Eye, GraduationCap } from 'lucide-react';
+import {
+  Flame,
+  ShieldCheck,
+  LogOut,
+  Eye,
+  GraduationCap,
+  LayoutDashboard,
+  BookOpen,
+  FileCheck2,
+  Gamepad2,
+  AlertCircle,
+  Trophy
+} from 'lucide-react';
 
 interface HeaderProps {
   currentHash: string;
@@ -22,57 +34,71 @@ export const Header: React.FC<HeaderProps> = ({ currentHash }) => {
 
   const isAdmin = role === 'admin';
 
+  // Clean display name so "Học Sinh (test123)" doesn't redundantly repeat "(Học sinh)"
+  const rawName = user?.fullName || user?.username || 'Học sinh';
+  const cleanDisplayName = rawName.replace(/^Học\s*Sinh\s*\((.+)\)$/i, '$1');
+
   return (
-    <header className="app-header sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200/80 shadow-xs" role="banner">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-        {/* Logo */}
-        <a href={isAdmin ? '#/admin' : '#/dashboard'} className="flex items-center gap-3 group">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-indigo-500 flex items-center justify-center text-white font-black text-lg shadow-md shadow-indigo-100 group-hover:scale-105 transition-transform">
+    <header
+      className="app-header sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200/80 shadow-xs"
+      role="banner"
+    >
+      <div className="max-w-7xl mx-auto px-3 sm:px-6 h-16 flex items-center justify-between gap-3">
+        {/* Logo - Strictly Single Line */}
+        <a
+          href={isAdmin ? '#/admin' : '#/dashboard'}
+          className="flex items-center gap-2.5 group shrink-0 whitespace-nowrap"
+        >
+          <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-600 to-indigo-500 flex items-center justify-center text-white font-black text-base shadow-md shadow-indigo-100 group-hover:scale-105 transition-transform shrink-0">
             E8
           </div>
-          <div>
-            <div className="logo text-lg font-bold text-slate-900 leading-tight">English Young 8</div>
-            <p className="text-[11px] text-indigo-600 font-medium hidden sm:block">
+          <div className="whitespace-nowrap">
+            <div className="logo text-base font-extrabold text-slate-900 leading-tight whitespace-nowrap">
+              English Young 8
+            </div>
+            <p className="text-[11px] text-indigo-600 font-medium hidden xl:block whitespace-nowrap">
               {isAdmin ? 'Trung Tâm Quản Trị & Giám Sát' : 'Global Success • Lớp 8 & Vào 10'}
             </p>
           </div>
         </a>
 
-        {/* Navigation Tabs (Desktop) */}
-        <nav className="nav-tabs hidden md:flex items-center gap-1">
+        {/* Navigation Tabs (Desktop) - Strictly Single Line Pill Bar */}
+        <nav className="nav-tabs hidden md:flex items-center gap-1 bg-slate-100/80 p-1 rounded-xl border border-slate-200/60 shrink-0 whitespace-nowrap">
           {isAdmin ? (
             /* ADMIN NAVIGATION TABS */
             <>
               <a
                 href="#/admin"
-                className={`nav-link px-3.5 py-1.5 rounded-lg text-sm font-semibold transition-all ${
+                className={`nav-link flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs lg:text-sm font-semibold transition-all whitespace-nowrap shrink-0 ${
                   isTabActive('admin')
-                    ? 'active bg-purple-50 text-purple-700 shadow-2xs font-bold'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                    ? 'active bg-white text-purple-700 shadow-xs font-bold'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
                 }`}
               >
-                Cổng Quản Trị
+                <ShieldCheck className="w-4 h-4 text-purple-600 shrink-0" />
+                <span>Cổng Quản Trị</span>
               </a>
               <a
                 href="#/dashboard"
-                className={`nav-link flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-sm font-semibold transition-all ${
+                className={`nav-link flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs lg:text-sm font-semibold transition-all whitespace-nowrap shrink-0 ${
                   isTabActive('dashboard')
-                    ? 'active bg-indigo-50 text-indigo-600 shadow-2xs font-bold'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                    ? 'active bg-white text-indigo-600 shadow-xs font-bold'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
                 }`}
               >
-                <Eye className="w-4 h-4 text-indigo-600" />
+                <Eye className="w-4 h-4 text-indigo-600 shrink-0" />
                 <span>Góc Nhìn Học Sinh</span>
               </a>
               <a
                 href="#/games"
-                className={`nav-link px-3.5 py-1.5 rounded-lg text-sm font-semibold transition-all ${
+                className={`nav-link flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs lg:text-sm font-semibold transition-all whitespace-nowrap shrink-0 ${
                   isTabActive('games')
-                    ? 'active bg-amber-50 text-amber-800 shadow-2xs font-bold'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                    ? 'active bg-amber-50 text-amber-800 border border-amber-200/80 shadow-xs font-bold'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
                 }`}
               >
-                🎮 Game Hub
+                <Gamepad2 className="w-4 h-4 text-amber-600 shrink-0" />
+                <span>Đấu Trường 2D</span>
               </a>
             </>
           ) : (
@@ -80,101 +106,113 @@ export const Header: React.FC<HeaderProps> = ({ currentHash }) => {
             <>
               <a
                 href="#/dashboard"
-                className={`nav-link px-3 py-1.5 rounded-lg text-sm font-semibold transition-all ${
+                className={`nav-link flex items-center gap-1.5 px-2.5 lg:px-3 py-1.5 rounded-lg text-xs lg:text-sm font-semibold transition-all whitespace-nowrap shrink-0 ${
                   isTabActive('dashboard')
-                    ? 'active bg-indigo-50 text-indigo-600 shadow-2xs font-bold'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                    ? 'active bg-white text-indigo-600 shadow-xs font-bold'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
                 }`}
               >
-                Bàn Học
+                <LayoutDashboard className="w-3.5 h-3.5 shrink-0 hidden lg:inline" />
+                <span>Bàn Học</span>
               </a>
               <a
                 href="#/unit/unit-1/vocab"
-                className={`nav-link px-3 py-1.5 rounded-lg text-sm font-semibold transition-all ${
+                className={`nav-link flex items-center gap-1.5 px-2.5 lg:px-3 py-1.5 rounded-lg text-xs lg:text-sm font-semibold transition-all whitespace-nowrap shrink-0 ${
                   isTabActive('unit')
-                    ? 'active bg-indigo-50 text-indigo-600 shadow-2xs font-bold'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                    ? 'active bg-white text-indigo-600 shadow-xs font-bold'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
                 }`}
               >
-                12 Unit
+                <BookOpen className="w-3.5 h-3.5 shrink-0 hidden lg:inline" />
+                <span>12 Unit</span>
               </a>
               <a
                 href="#/exams"
-                className={`nav-link px-3 py-1.5 rounded-lg text-sm font-semibold transition-all ${
+                className={`nav-link flex items-center gap-1.5 px-2.5 lg:px-3 py-1.5 rounded-lg text-xs lg:text-sm font-semibold transition-all whitespace-nowrap shrink-0 ${
                   isTabActive('exams')
-                    ? 'active bg-indigo-50 text-indigo-600 shadow-2xs font-bold'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                    ? 'active bg-white text-indigo-600 shadow-xs font-bold'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
                 }`}
               >
-                Luyện Đề
+                <FileCheck2 className="w-3.5 h-3.5 shrink-0 hidden lg:inline" />
+                <span>Luyện Đề</span>
               </a>
               <a
                 href="#/games"
-                className={`nav-link px-3 py-1.5 rounded-lg text-sm font-semibold transition-all ${
+                className={`nav-link flex items-center gap-1.5 px-2.5 lg:px-3 py-1.5 rounded-lg text-xs lg:text-sm font-semibold transition-all whitespace-nowrap shrink-0 ${
                   isTabActive('games')
-                    ? 'active bg-amber-50 text-amber-800 border border-amber-200 shadow-2xs font-bold'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                    ? 'active bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-xs font-bold'
+                    : 'text-amber-700 bg-amber-50/70 hover:bg-amber-100/80'
                 }`}
               >
-                🎮 Trò Chơi
+                <Gamepad2 className="w-4 h-4 shrink-0" />
+                <span>Game 2D</span>
               </a>
               <a
                 href="#/mistakes"
-                className={`nav-link relative px-3 py-1.5 rounded-lg text-sm font-semibold transition-all ${
+                className={`nav-link flex items-center gap-1.5 px-2.5 lg:px-3 py-1.5 rounded-lg text-xs lg:text-sm font-semibold transition-all whitespace-nowrap shrink-0 ${
                   isTabActive('mistakes')
-                    ? 'active bg-indigo-50 text-indigo-600 shadow-2xs font-bold'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                    ? 'active bg-white text-indigo-600 shadow-xs font-bold'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
                 }`}
               >
+                <AlertCircle className="w-3.5 h-3.5 shrink-0 hidden lg:inline" />
                 <span>Sổ Câu Sai</span>
                 {unresolvedCount > 0 && (
-                  <span className="ml-1.5 px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-rose-500 text-white">
+                  <span className="px-1.5 py-0.5 rounded-full text-[10px] leading-none font-bold bg-rose-500 text-white shrink-0">
                     {unresolvedCount}
                   </span>
                 )}
               </a>
               <a
                 href="#/progress"
-                className={`nav-link px-3 py-1.5 rounded-lg text-sm font-semibold transition-all ${
+                className={`nav-link flex items-center gap-1.5 px-2.5 lg:px-3 py-1.5 rounded-lg text-xs lg:text-sm font-semibold transition-all whitespace-nowrap shrink-0 ${
                   isTabActive('progress')
-                    ? 'active bg-indigo-50 text-indigo-600 shadow-2xs font-bold'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                    ? 'active bg-white text-indigo-600 shadow-xs font-bold'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
                 }`}
               >
-                Thành Tích
+                <Trophy className="w-3.5 h-3.5 shrink-0 hidden lg:inline" />
+                <span>Thành Tích</span>
               </a>
             </>
           )}
         </nav>
 
-        {/* Right Tools */}
-        <div className="flex items-center gap-2.5">
+        {/* Right Tools - Strictly Single Line */}
+        <div className="flex items-center gap-2 shrink-0 whitespace-nowrap">
           {!isAdmin && (
             <div
               title={`Chuỗi học tập liên tục: ${streakDays} ngày`}
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-50 border border-amber-200/80 text-amber-700 text-xs font-bold cursor-default"
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-amber-50 border border-amber-200/80 text-amber-700 text-xs font-bold cursor-default whitespace-nowrap shrink-0"
             >
-              <Flame className="w-4 h-4 text-amber-500 fill-amber-500 animate-pulse" />
+              <Flame className="w-3.5 h-3.5 text-amber-500 fill-amber-500 shrink-0" />
               <span>{streakDays} ngày</span>
             </div>
           )}
 
           {/* User pill */}
           <div
-            className={`user-pill flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-semibold ${
+            className={`user-pill flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap shrink-0 ${
               isAdmin
                 ? 'bg-purple-100 text-purple-800 border border-purple-200'
-                : 'bg-slate-100 text-slate-700'
+                : 'bg-slate-100 text-slate-700 border border-slate-200/70'
             }`}
           >
             {isAdmin ? (
-              <ShieldCheck className="w-3.5 h-3.5 text-purple-600" />
+              <ShieldCheck className="w-3.5 h-3.5 text-purple-600 shrink-0" />
             ) : (
-              <GraduationCap className="w-3.5 h-3.5 text-indigo-600" />
+              <GraduationCap className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
             )}
-            <span className="font-bold">{user?.fullName || user?.username}</span>
-            <span className="text-[10px] uppercase font-bold text-slate-400">
-              ({isAdmin ? 'Admin' : 'Học sinh'})
+            <span className="font-bold max-w-[110px] sm:max-w-[140px] truncate">
+              {cleanDisplayName}
+            </span>
+            <span
+              className={`px-1.5 py-0.5 rounded text-[10px] uppercase font-bold leading-none ${
+                isAdmin ? 'bg-purple-200/80 text-purple-900' : 'bg-indigo-100 text-indigo-700'
+              }`}
+            >
+              {isAdmin ? 'Admin' : 'HS'}
             </span>
           </div>
 
@@ -182,10 +220,10 @@ export const Header: React.FC<HeaderProps> = ({ currentHash }) => {
           <button
             onClick={logout}
             title="Đăng xuất khỏi hệ thống"
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-bold text-slate-500 hover:text-rose-600 hover:bg-rose-50 transition-colors border border-transparent hover:border-rose-100"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-bold text-slate-600 hover:text-rose-600 hover:bg-rose-50 transition-colors border border-slate-200/70 hover:border-rose-200 whitespace-nowrap shrink-0"
           >
-            <LogOut className="w-4 h-4" />
-            <span className="hidden sm:inline">Đăng xuất</span>
+            <LogOut className="w-3.5 h-3.5 shrink-0" />
+            <span className="hidden lg:inline">Đăng xuất</span>
           </button>
         </div>
       </div>
