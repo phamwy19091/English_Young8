@@ -483,7 +483,7 @@ export const AdminPortal: React.FC = () => {
                   type="text"
                   value={newStuPassword}
                   onChange={e => setNewStuPassword(e.target.value)}
-                  placeholder="Ví dụ: 1234 hoặc pass123"
+                  placeholder="Nhập mật khẩu/PIN khởi tạo..."
                   className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-xs font-semibold outline-none focus:border-purple-600"
                   required
                 />

@@ -38,12 +38,6 @@ export const AuthPortal: React.FC<AuthPortalProps> = ({ initialMode = 'login' })
   const [regPassword, setRegPassword] = useState<string>('');
   const [regConfirmPass, setRegConfirmPass] = useState<string>('');
 
-  const handleQuickFill = (username: string, pin: string) => {
-    setLoginUser(username);
-    setLoginPass(pin);
-    setErrorMsg('');
-  };
-
   const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
@@ -193,7 +187,7 @@ export const AuthPortal: React.FC<AuthPortalProps> = ({ initialMode = 'login' })
                 </h2>
                 <p className="text-xs text-slate-500 mt-1">
                   {mode === 'login'
-                    ? 'Đăng nhập tài khoản Học sinh để vào học, hoặc Admin để quản lý.'
+                    ? 'Nhập tên đăng nhập và mật khẩu để tiếp tục.'
                     : 'Điền thông tin để tạo tài khoản học tập riêng cho em.'}
                 </p>
               </div>
@@ -250,7 +244,7 @@ export const AuthPortal: React.FC<AuthPortalProps> = ({ initialMode = 'login' })
                       type="text"
                       value={loginUser}
                       onChange={e => setLoginUser(e.target.value)}
-                      placeholder="Ví dụ: em_lop8 hoặc admin"
+                      placeholder="Nhập tên đăng nhập..."
                       className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-300 text-xs font-semibold text-slate-800 placeholder:text-slate-400 outline-none focus:border-indigo-600 focus:ring-2 focus:ring-indigo-100 transition-all"
                       required
                     />
@@ -293,29 +287,6 @@ export const AuthPortal: React.FC<AuthPortalProps> = ({ initialMode = 'login' })
                     </>
                   )}
                 </button>
-
-                {/* Quick Credentials Chips */}
-                <div className="pt-4 border-t border-slate-100 space-y-2">
-                  <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
-                    Đăng nhập nhanh (Nhấn để điền):
-                  </span>
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      onClick={() => handleQuickFill('em_lop8', '1234')}
-                      className="px-3 py-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-semibold border border-indigo-200/60 transition-colors"
-                    >
-                      🎓 Học sinh mẫu (em_lop8 / 1234)
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleQuickFill('admin', 'admin123')}
-                      className="px-3 py-1.5 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-700 text-xs font-semibold border border-purple-200/60 transition-colors"
-                    >
-                      👑 Quản trị viên (admin / admin123)
-                    </button>
-                  </div>
-                </div>
               </form>
             ) : (
               /* Mode 2: REGISTER FORM */
@@ -326,7 +297,7 @@ export const AuthPortal: React.FC<AuthPortalProps> = ({ initialMode = 'login' })
                     type="text"
                     value={regFullName}
                     onChange={e => setRegFullName(e.target.value)}
-                    placeholder="Ví dụ: Nguyễn Minh Trang"
+                    placeholder="Nhập họ và tên học sinh..."
                     className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs font-semibold text-slate-800 placeholder:text-slate-400 outline-none focus:border-indigo-600 focus:ring-2 focus:ring-indigo-100 transition-all"
                     required
                   />
@@ -338,7 +309,7 @@ export const AuthPortal: React.FC<AuthPortalProps> = ({ initialMode = 'login' })
                     type="text"
                     value={regUsername}
                     onChange={e => setRegUsername(e.target.value.toLowerCase())}
-                    placeholder="Ví dụ: minhtrang8"
+                    placeholder="Nhập tên đăng nhập (viết liền không dấu)..."
                     className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs font-semibold text-slate-800 placeholder:text-slate-400 outline-none focus:border-indigo-600 focus:ring-2 focus:ring-indigo-100 transition-all"
                     required
                   />
@@ -351,7 +322,7 @@ export const AuthPortal: React.FC<AuthPortalProps> = ({ initialMode = 'login' })
                       type="password"
                       value={regPassword}
                       onChange={e => setRegPassword(e.target.value)}
-                      placeholder="Mật khẩu..."
+                      placeholder="Nhập mật khẩu..."
                       className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs font-semibold text-slate-800 placeholder:text-slate-400 outline-none focus:border-indigo-600 focus:ring-2 focus:ring-indigo-100 transition-all"
                       required
                     />
@@ -363,7 +334,7 @@ export const AuthPortal: React.FC<AuthPortalProps> = ({ initialMode = 'login' })
                       type="password"
                       value={regConfirmPass}
                       onChange={e => setRegConfirmPass(e.target.value)}
-                      placeholder="Xác nhận lại..."
+                      placeholder="Nhập lại mật khẩu..."
                       className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs font-semibold text-slate-800 placeholder:text-slate-400 outline-none focus:border-indigo-600 focus:ring-2 focus:ring-indigo-100 transition-all"
                       required
                     />
