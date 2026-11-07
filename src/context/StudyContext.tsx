@@ -4,6 +4,7 @@ import { ExamAttempt } from '../types/storage';
 import { unitsData } from '../data/units';
 import { useAuth } from './AuthContext';
 import { getStudentSnapshot, saveStudentSnapshot } from '../services/storageService';
+import { supabaseService } from '../services/supabaseService';
 import { calculateStreak, compute5SkillRadar, SkillCompetency } from '../services/adaptiveService';
 
 interface ExtendedExamAttempt extends ExamAttempt {
@@ -56,11 +57,21 @@ export const StudyProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       setExamHistory([]);
       return;
     }
+    // 1. Instant local render
     const snap = getStudentSnapshot(user.username);
     setLearnedVocab(snap.learnedVocab || []);
     setUnitScores(snap.unitScores || {});
     setExamHistory(snap.examHistory as ExtendedExamAttempt[] || []);
-  }, [user?.username]);
+
+    // 2. Async cloud sync for student
+    if (user.role === 'student') {
+      supabaseService.fetchStudentFullRecord(user.username).then(cloudSnap => {
+        setLearnedVocab(cloudSnap.learnedVocab || []);
+        setUnitScores(cloudSnap.unitScores || {});
+        setExamHistory(cloudSnap.examHistory as ExtendedExamAttempt[] || []);
+      }).catch(err => console.warn('StudyContext cloud sync error:', err));
+    }
+  }, [user?.username, user?.role]);
 
   const activeUnit = useMemo(() => {
     return unitsData.find(u => u.id === activeUnitId) || unitsData[0];
@@ -75,9 +86,10 @@ export const StudyProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       snap.learnedVocab = updated;
       snap.updatedAt = new Date().toISOString();
       saveStudentSnapshot(snap);
+      if (user) supabaseService.syncStudentSnapshotToCloud(user, snap);
       return updated;
     });
-  }, [user?.username]);
+  }, [user]);
 
   const unmarkVocabLearned = useCallback((vocabId: string) => {
     if (!user?.username) return;
@@ -87,9 +99,10 @@ export const StudyProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       snap.learnedVocab = updated;
       snap.updatedAt = new Date().toISOString();
       saveStudentSnapshot(snap);
+      if (user) supabaseService.syncStudentSnapshotToCloud(user, snap);
       return updated;
     });
-  }, [user?.username]);
+  }, [user]);
 
   const isVocabLearned = useCallback((vocabId: string) => {
     return learnedVocab.includes(vocabId);
@@ -105,9 +118,10 @@ export const StudyProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       snap.unitScores = updated;
       snap.updatedAt = new Date().toISOString();
       saveStudentSnapshot(snap);
+      if (user) supabaseService.syncStudentSnapshotToCloud(user, snap);
       return updated;
     });
-  }, [user?.username]);
+  }, [user]);
 
   const recordExamAttempt = useCallback((attemptData: {
     examId: string;
@@ -135,6 +149,7 @@ export const StudyProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         };
         snap.updatedAt = new Date().toISOString();
         saveStudentSnapshot(snap);
+        if (user) supabaseService.syncStudentSnapshotToCloud(user, snap);
       }
       return updated;
     });

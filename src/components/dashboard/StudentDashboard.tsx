@@ -170,7 +170,8 @@ export const StudentDashboard: React.FC = () => {
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {unitsData.map(unit => {
-            const best = unitScores[Number(unit.id)] ?? null;
+            const unitNum = unit.number || Number(String(unit.id).replace(/^unit-?/i, ''));
+            const best = unitScores[unitNum] ?? null;
 
             return (
               <div
@@ -185,7 +186,7 @@ export const StudentDashboard: React.FC = () => {
                       </div>
                       <div>
                         <span className="text-xs font-bold text-indigo-600 uppercase tracking-wider block">
-                          Unit {unit.id}
+                          Unit {unitNum}
                         </span>
                         <h4 className="text-base font-bold text-slate-900 leading-snug">
                           {unit.title}

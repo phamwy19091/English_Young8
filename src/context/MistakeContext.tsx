@@ -3,6 +3,7 @@ import { MistakeItem } from '../types/storage';
 import { UnitQuestion } from '../types/curriculum';
 import { useAuth } from './AuthContext';
 import { getStudentSnapshot, saveStudentSnapshot } from '../services/storageService';
+import { supabaseService } from '../services/supabaseService';
 import { cloneAndShuffleOptions, shuffleArray } from '../services/adaptiveService';
 
 interface MistakeContextType {
@@ -35,7 +36,13 @@ export const MistakeProvider: React.FC<{ children: ReactNode }> = ({ children })
     }
     const snap = getStudentSnapshot(user.username);
     setMistakes(snap.mistakes || []);
-  }, [user?.username]);
+
+    if (user.role === 'student') {
+      supabaseService.fetchStudentFullRecord(user.username).then(cloudSnap => {
+        setMistakes(cloudSnap.mistakes || []);
+      }).catch(err => console.warn('MistakeContext cloud sync error:', err));
+    }
+  }, [user?.username, user?.role]);
 
   // Persist mistakes to snapshot
   const persistMistakes = useCallback((newMistakes: MistakeItem[]) => {
@@ -45,8 +52,9 @@ export const MistakeProvider: React.FC<{ children: ReactNode }> = ({ children })
       snap.mistakes = newMistakes;
       snap.updatedAt = new Date().toISOString();
       saveStudentSnapshot(snap);
+      if (user) supabaseService.syncStudentSnapshotToCloud(user, snap);
     }
-  }, [user?.username]);
+  }, [user]);
 
   const harvestMistakes = useCallback(
     (

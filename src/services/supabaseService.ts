@@ -409,6 +409,170 @@ class SupabaseService {
 
     return { success: true };
   }
+
+  /**
+   * Fetch full student record from Supabase Cloud (avatar_url snapshot + quiz_attempts)
+   * Falls back to local snapshot if offline or user not found.
+   */
+  public async fetchStudentFullRecord(username: string, userId?: string): Promise<StudentSnapshot> {
+    const localSnapshot = getStudentSnapshot(username);
+
+    if (!this.client) {
+      return localSnapshot;
+    }
+
+    try {
+      const userQuery = username
+        ? this.client.from('users').select('*').eq('username', username).maybeSingle()
+        : this.client.from('users').select('*').eq('id', userId).maybeSingle();
+
+      const { data: userRow, error } = await userQuery;
+      if (error || !userRow) {
+        return localSnapshot;
+      }
+
+      const resolvedId = userRow.id || userId;
+      let cloudSnapshotRaw: any = null;
+
+      if (userRow.avatar_url && typeof userRow.avatar_url === 'string' && userRow.avatar_url.startsWith('{')) {
+        try {
+          cloudSnapshotRaw = JSON.parse(userRow.avatar_url);
+        } catch (e) {
+          console.warn('Failed to parse avatar_url snapshot for', username, e);
+        }
+      }
+
+      // Fetch relational quiz attempts if available
+      let relationalAttempts: any[] = [];
+      if (resolvedId) {
+        try {
+          const { data: attempts } = await this.client
+            .from('quiz_attempts')
+            .select('*')
+            .eq('user_id', resolvedId)
+            .order('completed_at', { ascending: false });
+          relationalAttempts = attempts || [];
+        } catch (e) {
+          console.warn('Failed to fetch quiz_attempts for', username, e);
+        }
+      }
+
+      // Merge and normalize
+      const source = cloudSnapshotRaw || {};
+
+      // 1. learnedVocab
+      let learnedVocab: string[] = [];
+      if (Array.isArray(source.learnedVocab)) {
+        learnedVocab = source.learnedVocab;
+      } else if (source.learnedVocab && typeof source.learnedVocab === 'object') {
+        learnedVocab = Object.keys(source.learnedVocab).filter(k => !!source.learnedVocab[k]);
+      } else if (localSnapshot.learnedVocab?.length > 0) {
+        learnedVocab = localSnapshot.learnedVocab;
+      }
+
+      // 2. unitScores (handle 'unit-1': 8 or 1: 8)
+      const unitScores: Record<number, number> = { ...(localSnapshot.unitScores || {}) };
+      if (source.unitScores && typeof source.unitScores === 'object') {
+        for (const [k, v] of Object.entries(source.unitScores)) {
+          const cleanKey = k.replace(/^unit-?/i, '');
+          const numKey = Number(cleanKey);
+          const numVal = Number(v);
+          if (!isNaN(numKey) && !isNaN(numVal)) {
+            unitScores[numKey] = Math.max(unitScores[numKey] || 0, numVal);
+          }
+        }
+      }
+
+      // 3. examHistory
+      let examHistory: any[] = [];
+      if (Array.isArray(source.examHistory) && source.examHistory.length > 0) {
+        examHistory = source.examHistory;
+      } else if (localSnapshot.examHistory?.length > 0) {
+        examHistory = localSnapshot.examHistory;
+      }
+
+      // If relational quiz attempts exist, make sure they are in examHistory
+      if (relationalAttempts.length > 0) {
+        const existingExamIds = new Set(examHistory.map(h => h.id || `${h.examId}_${h.date}`));
+        for (const att of relationalAttempts) {
+          if (!existingExamIds.has(att.id)) {
+            examHistory.push({
+              id: att.id,
+              examId: att.exercise_id,
+              examTitle: `Bài kiểm tra ${att.exercise_id}`,
+              score: att.score,
+              score10: att.score,
+              correct: att.raw_score,
+              total: att.total_questions,
+              timeSpentSeconds: att.time_spent_seconds || 0,
+              date: new Date(att.completed_at).toLocaleString('vi-VN'),
+              submittedAt: att.completed_at,
+              answers: {}
+            });
+          }
+        }
+      }
+
+      // 4. mistakes
+      let mistakes: any[] = [];
+      if (Array.isArray(source.mistakes)) {
+        mistakes = source.mistakes;
+      } else if (source.mistakes && typeof source.mistakes === 'object') {
+        mistakes = Object.values(source.mistakes);
+      } else if (localSnapshot.mistakes?.length > 0) {
+        mistakes = localSnapshot.mistakes;
+      }
+
+      const mergedSnapshot: StudentSnapshot = {
+        username: userRow.username || username,
+        learnedVocab,
+        unitScores,
+        examHistory,
+        mistakes,
+        streak: {
+          currentStreak: userRow.streak_days || source.streak?.currentStreak || localSnapshot.streak?.currentStreak || 1,
+          lastStudyDate: source.streak?.lastStudyDate || localSnapshot.streak?.lastStudyDate || new Date().toISOString().split('T')[0],
+        },
+        updatedAt: source.updatedAt || new Date().toISOString(),
+      };
+
+      saveStudentSnapshot(mergedSnapshot);
+      return mergedSnapshot;
+    } catch (err) {
+      console.warn('fetchStudentFullRecord exception:', err);
+      return localSnapshot;
+    }
+  }
+
+  /**
+   * Sync student state snapshot to Supabase Cloud users.avatar_url
+   */
+  public async syncStudentSnapshotToCloud(user: UserSession, snapshot: StudentSnapshot): Promise<boolean> {
+    if (!user || user.role === 'admin' || !this.client) return false;
+
+    try {
+      const snapshotPayload = {
+        learnedVocab: snapshot.learnedVocab || [],
+        unitScores: snapshot.unitScores || {},
+        examHistory: (snapshot.examHistory || []).slice(0, 50),
+        mistakes: snapshot.mistakes || [],
+        updatedAt: new Date().toISOString(),
+      };
+
+      await this.client
+        .from('users')
+        .update({
+          avatar_url: JSON.stringify(snapshotPayload),
+          last_active_at: new Date().toISOString(),
+        })
+        .eq('username', user.username);
+
+      return true;
+    } catch (e) {
+      console.warn('syncStudentSnapshotToCloud error:', e);
+      return false;
+    }
+  }
 }
 
 export const supabaseService = new SupabaseService();

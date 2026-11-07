@@ -23,7 +23,8 @@ export const UnitQuiz: React.FC<UnitQuizProps> = ({ unit }) => {
   const [isSubmitted, setIsSubmitted] = useState<boolean>(false);
   const [showConfirmSubmit, setShowConfirmSubmit] = useState<boolean>(false);
 
-  const bestScore = unitScores[Number(unit.id)] ?? null;
+  const unitNum = unit.number || Number(String(unit.id).replace(/^unit-?/i, ''));
+  const bestScore = unitScores[unitNum] ?? null;
 
   const handleSelectOption = useCallback((qId: string, optIdx: number) => {
     if (isSubmitted) return;
@@ -48,7 +49,7 @@ export const UnitQuiz: React.FC<UnitQuizProps> = ({ unit }) => {
 
     const score10 = calculateScore10(correctCount, questions.length);
     setIsSubmitted(true);
-    saveUnitScore(Number(unit.id), score10);
+    saveUnitScore(unitNum, score10);
 
     if (wrongList.length > 0) {
       harvestMistakes('unit', unit.id, wrongList);

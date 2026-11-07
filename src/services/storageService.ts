@@ -205,7 +205,8 @@ function migrateLegacyData(username: string): StudentSnapshot | null {
       if (parsedScores && typeof parsedScores === 'object' && !Array.isArray(parsedScores)) {
         const scores: Record<number, number> = {};
         for (const [k, v] of Object.entries(parsedScores)) {
-          const numKey = Number(k);
+          const cleanKey = k.replace(/^unit-?/i, '');
+          const numKey = Number(cleanKey);
           const numVal = Number(v);
           if (!isNaN(numKey) && v !== null && v !== '' && !isNaN(numVal)) {
             scores[numKey] = numVal;
@@ -292,10 +293,23 @@ export function getStudentSnapshot(username: string): StudentSnapshot {
       mistakes = Object.values(parsed.mistakes) as MistakeItem[];
     }
 
+    // Normalize unitScores (handle keys like 'unit-1', 'unit-2' or 1, 2)
+    const unitScores: Record<number, number> = {};
+    if (parsed.unitScores && typeof parsed.unitScores === 'object' && !Array.isArray(parsed.unitScores)) {
+      for (const [k, v] of Object.entries(parsed.unitScores)) {
+        const cleanKey = k.replace(/^unit-?/i, '');
+        const numKey = Number(cleanKey);
+        const numVal = Number(v);
+        if (!isNaN(numKey) && v !== null && v !== '' && !isNaN(numVal)) {
+          unitScores[numKey] = numVal;
+        }
+      }
+    }
+
     const snapshot: StudentSnapshot = {
       username,
       learnedVocab,
-      unitScores: parsed.unitScores || {},
+      unitScores,
       examHistory: Array.isArray(parsed.examHistory) ? parsed.examHistory : [],
       mistakes,
       streak: {

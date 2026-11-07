@@ -50,6 +50,7 @@ export const AdminPortal: React.FC = () => {
   // Monitor State
   const [selectedStudent, setSelectedStudent] = useState<string>('em_lop8');
   const [studentSnapshot, setStudentSnapshot] = useState<StudentSnapshot | null>(null);
+  const [loadingSnapshot, setLoadingSnapshot] = useState<boolean>(false);
 
   // Homework Assignment State
   const [assignments, setAssignments] = useState<HomeworkAssignment[]>([]);
@@ -114,8 +115,18 @@ export const AdminPortal: React.FC = () => {
   // Reload snapshot when selectedStudent changes
   useEffect(() => {
     if (selectedStudent) {
+      // 1. Instant local render
       const snap = getStudentSnapshot(selectedStudent);
       setStudentSnapshot(snap);
+
+      // 2. Fetch latest live cloud data from Supabase
+      setLoadingSnapshot(true);
+      supabaseService.fetchStudentFullRecord(selectedStudent).then(cloudSnap => {
+        setStudentSnapshot(cloudSnap);
+        setLoadingSnapshot(false);
+      }).catch(() => {
+        setLoadingSnapshot(false);
+      });
     }
   }, [selectedStudent]);
 
@@ -325,7 +336,7 @@ export const AdminPortal: React.FC = () => {
 
   const examAttempts = studentSnapshot?.examHistory || [];
   const avgExamScore = examAttempts.length > 0
-    ? (examAttempts.reduce((a, b) => a + b.score, 0) / examAttempts.length).toFixed(1)
+    ? (examAttempts.reduce((a, b) => a + (Number(b.score ?? (b as any).score10) || 0), 0) / examAttempts.length).toFixed(1)
     : '--';
 
   const studentsList = allUsers.filter(u => u.role !== 'admin');
@@ -660,15 +671,18 @@ export const AdminPortal: React.FC = () => {
 
             <div className="flex items-center gap-2">
               <button
-                onClick={() => {
-                  const snap = getStudentSnapshot(selectedStudent);
+                onClick={async () => {
+                  setLoadingSnapshot(true);
+                  const snap = await supabaseService.fetchStudentFullRecord(selectedStudent);
                   setStudentSnapshot(snap);
-                  showToast(`Đã làm mới dữ liệu của ${selectedStudent}`, 'info');
+                  setLoadingSnapshot(false);
+                  showToast(`Đã đồng bộ dữ liệu mới nhất từ Cloud của ${selectedStudent}!`, 'info');
                 }}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 text-slate-600 text-xs font-semibold hover:bg-slate-50"
+                disabled={loadingSnapshot}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 text-slate-600 text-xs font-semibold hover:bg-slate-50 transition-colors"
               >
-                <RotateCw className="w-3.5 h-3.5" />
-                <span>Làm mới snapshot</span>
+                <RotateCw className={`w-3.5 h-3.5 ${loadingSnapshot ? 'animate-spin' : ''}`} />
+                <span>{loadingSnapshot ? 'Đang đồng bộ...' : 'Làm mới snapshot'}</span>
               </button>
 
               <button
@@ -715,10 +729,11 @@ export const AdminPortal: React.FC = () => {
             </h3>
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
               {unitsData.map(u => {
-                const sc = studentSnapshot?.unitScores?.[Number(u.id)] ?? null;
+                const unitNum = u.number || Number(String(u.id).replace(/^unit-?/i, ''));
+                const sc = studentSnapshot?.unitScores?.[unitNum] ?? null;
                 return (
                   <div key={u.id} className="p-4 rounded-2xl bg-slate-50 border border-slate-100 text-center">
-                    <span className="text-[10px] font-bold text-slate-400 block uppercase">Unit {u.id}</span>
+                    <span className="text-[10px] font-bold text-slate-400 block uppercase">Unit {unitNum}</span>
                     <span className="text-base font-black text-slate-800">
                       {sc !== null ? `${sc}đ` : 'Chưa làm'}
                     </span>
@@ -745,14 +760,22 @@ export const AdminPortal: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {examAttempts.map(att => (
-                      <tr key={att.id}>
-                        <td className="py-2.5 font-bold text-slate-800">{att.examTitle}</td>
-                        <td className="py-2.5 font-black text-indigo-600">{att.score}/10</td>
-                        <td className="py-2.5 text-slate-500">{Math.floor(att.timeSpentSeconds / 60)}p {att.timeSpentSeconds % 60}s</td>
-                        <td className="py-2.5 text-slate-400">{att.submittedAt?.split('T')[0]}</td>
-                      </tr>
-                    ))}
+                    {examAttempts.map(att => {
+                      const scoreVal = att.score ?? (att as any).score10;
+                      const timeStr = typeof (att as any).timeSpent === 'string'
+                        ? (att as any).timeSpent
+                        : `${Math.floor((att.timeSpentSeconds || 0) / 60)}p ${(att.timeSpentSeconds || 0) % 60}s`;
+                      const dateStr = (att as any).date || att.submittedAt?.split('T')[0] || 'Gần đây';
+
+                      return (
+                        <tr key={att.id}>
+                          <td className="py-2.5 font-bold text-slate-800">{att.examTitle}</td>
+                          <td className="py-2.5 font-black text-indigo-600">{scoreVal !== undefined ? `${scoreVal}/10` : '--'}</td>
+                          <td className="py-2.5 text-slate-500">{timeStr}</td>
+                          <td className="py-2.5 text-slate-400">{dateStr}</td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
