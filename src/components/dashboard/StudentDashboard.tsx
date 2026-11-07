@@ -47,7 +47,7 @@ export const StudentDashboard: React.FC = () => {
           </div>
 
           <h2 className="text-2xl sm:text-4xl font-black tracking-tight leading-tight">
-            Chào mừng trở lại, <span className="text-amber-400">{user.fullName || user.username}</span>! 👋
+            Chào mừng trở lại, <span className="text-amber-400">{user?.fullName || user?.username || 'Học sinh'}</span>! 👋
           </h2>
 
           <p className="text-xs sm:text-sm text-indigo-200/90 leading-relaxed">

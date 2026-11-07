@@ -12,37 +12,56 @@ import { ExamRoom } from './components/exam/ExamRoom';
 import { MistakesNotebook } from './components/mistakes/MistakesNotebook';
 import { ProgressAnalytics } from './components/analytics/ProgressAnalytics';
 import { AdminPortal } from './components/admin/AdminPortal';
+import { AuthPortal } from './components/auth/AuthPortal';
 import { ExamData } from './types/curriculum';
 import { examsData } from './data/exams';
 
 const AppContent: React.FC = () => {
+  const { user, role, isAuthenticated } = useAuth();
   const [currentHash, setCurrentHash] = useState<string>(() => {
-    return typeof window !== 'undefined' ? window.location.hash || '#/dashboard' : '#/dashboard';
+    return typeof window !== 'undefined' ? window.location.hash || '' : '';
   });
 
   const { activeExam, startExam, cancelActiveExam } = useStudy();
-  const { role } = useAuth();
 
   useEffect(() => {
-    if (!window.location.hash || window.location.hash === '#/' || window.location.hash === '#') {
-      window.location.hash = '#/dashboard';
+    // If not authenticated, ensure hash is login
+    if (!isAuthenticated) {
+      if (!window.location.hash || !window.location.hash.includes('register')) {
+        window.location.hash = '#/login';
+      }
+    } else {
+      // If authenticated and no hash or pointing to auth, redirect based on role
+      if (!window.location.hash || window.location.hash === '#/' || window.location.hash.includes('login') || window.location.hash.includes('register')) {
+        window.location.hash = role === 'admin' ? '#/admin' : '#/dashboard';
+      }
     }
 
     const handleHashChange = () => {
-      setCurrentHash(window.location.hash || '#/dashboard');
+      setCurrentHash(window.location.hash || '');
     };
 
     window.addEventListener('hashchange', handleHashChange);
     return () => window.removeEventListener('hashchange', handleHashChange);
-  }, []);
+  }, [isAuthenticated, role]);
+
+  // If not logged in, render the AuthPortal
+  if (!isAuthenticated || !user) {
+    const isRegister = currentHash.includes('register');
+    return <AuthPortal initialMode={isRegister ? 'register' : 'login'} />;
+  }
 
   // Parse hash route
-  // Examples: #/dashboard, #/unit/unit-1/vocab, #/exams, #/exams/room/exam-15m-1, #/mistakes, #/progress, #/admin
   const renderCurrentView = () => {
     const hash = currentHash;
 
+    // Student trying to access admin -> redirect
+    if (role === 'student' && hash.includes('admin')) {
+      window.location.hash = '#/dashboard';
+      return <StudentDashboard />;
+    }
+
     if (hash.includes('exams/room') || activeExam) {
-      // Find exam from id if activeExam is null
       let examToRun = activeExam;
       if (!examToRun) {
         const parts = hash.split('exams/room/');
@@ -62,7 +81,6 @@ const AppContent: React.FC = () => {
     }
 
     if (hash.includes('unit')) {
-      // Match #/unit/unit-X/subtab or #/unit/X/subtab
       const match = hash.match(/unit(?:-)?(\d+)(?:\/([a-z0-9_-]+))?/i);
       const unitNum = match && match[1] ? parseInt(match[1], 10) : 1;
       const subTab = (match && match[2] ? match[2] : 'vocab') as any;
@@ -105,7 +123,7 @@ const AppContent: React.FC = () => {
       return <ProgressAnalytics />;
     }
 
-    if (hash.includes('admin') || role === 'admin') {
+    if (role === 'admin' && (hash.includes('admin') || !hash.includes('dashboard'))) {
       return <AdminPortal />;
     }
 
@@ -125,8 +143,8 @@ const AppContent: React.FC = () => {
         {renderCurrentView()}
       </main>
 
-      {/* Mobile Bottom Navigation */}
-      {!isExamRoomView && <MobileBottomNav currentHash={currentHash} />}
+      {/* Mobile Bottom Navigation (only for students) */}
+      {!isExamRoomView && role === 'student' && <MobileBottomNav currentHash={currentHash} />}
 
       {/* Mounting container for accessibility and modals */}
       <div id="modal-root" />

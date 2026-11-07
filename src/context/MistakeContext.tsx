@@ -29,21 +29,24 @@ export const MistakeProvider: React.FC<{ children: ReactNode }> = ({ children })
 
   // Load snapshot when username changes
   useEffect(() => {
-    if (!user.username) return;
+    if (!user?.username) {
+      setMistakes([]);
+      return;
+    }
     const snap = getStudentSnapshot(user.username);
     setMistakes(snap.mistakes || []);
-  }, [user.username]);
+  }, [user?.username]);
 
   // Persist mistakes to snapshot
   const persistMistakes = useCallback((newMistakes: MistakeItem[]) => {
     setMistakes(newMistakes);
-    if (user.username) {
+    if (user?.username) {
       const snap = getStudentSnapshot(user.username);
       snap.mistakes = newMistakes;
       snap.updatedAt = new Date().toISOString();
       saveStudentSnapshot(snap);
     }
-  }, [user.username]);
+  }, [user?.username]);
 
   const harvestMistakes = useCallback(
     (
@@ -83,7 +86,7 @@ export const MistakeProvider: React.FC<{ children: ReactNode }> = ({ children })
           }
         });
 
-        if (user.username) {
+        if (user?.username) {
           const snap = getStudentSnapshot(user.username);
           snap.mistakes = current;
           snap.updatedAt = now;
@@ -92,7 +95,7 @@ export const MistakeProvider: React.FC<{ children: ReactNode }> = ({ children })
         return current;
       });
     },
-    [user.username]
+    [user?.username]
   );
 
   const retryMistake = useCallback(
@@ -121,7 +124,7 @@ export const MistakeProvider: React.FC<{ children: ReactNode }> = ({ children })
         const updated = prev.map(m =>
           idSet.has(m.id) ? { ...m, resolved: true, resolvedAt: now } : m
         );
-        if (user.username) {
+        if (user?.username) {
           const snap = getStudentSnapshot(user.username);
           snap.mistakes = updated;
           snap.updatedAt = now;
@@ -130,7 +133,7 @@ export const MistakeProvider: React.FC<{ children: ReactNode }> = ({ children })
         return updated;
       });
     },
-    [user.username]
+    [user?.username]
   );
 
   const resolveMistake = useCallback(
@@ -140,7 +143,7 @@ export const MistakeProvider: React.FC<{ children: ReactNode }> = ({ children })
         const updated = prev.map(m =>
           m.id === mistakeId ? { ...m, resolved: true, resolvedAt: now } : m
         );
-        if (user.username) {
+        if (user?.username) {
           const snap = getStudentSnapshot(user.username);
           snap.mistakes = updated;
           snap.updatedAt = now;
@@ -149,14 +152,14 @@ export const MistakeProvider: React.FC<{ children: ReactNode }> = ({ children })
         return updated;
       });
     },
-    [user.username]
+    [user?.username]
   );
 
   const deleteMistake = useCallback(
     (mistakeId: string) => {
       setMistakes(prev => {
         const filtered = prev.filter(m => m.id !== mistakeId);
-        if (user.username) {
+        if (user?.username) {
           const snap = getStudentSnapshot(user.username);
           snap.mistakes = filtered;
           snap.updatedAt = new Date().toISOString();
@@ -165,7 +168,7 @@ export const MistakeProvider: React.FC<{ children: ReactNode }> = ({ children })
         return filtered;
       });
     },
-    [user.username]
+    [user?.username]
   );
 
   const clearResolvedMistakes = useCallback(() => {

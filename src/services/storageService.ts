@@ -8,6 +8,7 @@ export const STORAGE_KEYS = {
   SYSTEM_CONFIG: 'ey8_system_config_v1',
   SUPABASE_URL: 'ey8_supabase_url',
   SUPABASE_ANON: 'ey8_supabase_anon_key',
+  LOCAL_USERS: 'ey8_local_users_v1',
   LEGACY_LEARNED_VOCAB: 'ey8_learned_vocab_v1',
   LEGACY_UNIT_SCORES: 'ey8_unit_scores_v1',
   LEGACY_EXAM_HISTORY: 'ey8_exam_history_v1',
@@ -67,6 +68,81 @@ export function saveAuthSession(session: UserSession): void {
 
 export function clearAuthSession(): void {
   safeRemoveItem(STORAGE_KEYS.AUTH_SESSION);
+}
+
+// ---------------------------------------------------------------------------
+// Local Users Management (Compatible with legacy ey8_local_users_v1)
+// ---------------------------------------------------------------------------
+
+export const INITIAL_ACCOUNTS: UserSession[] = [
+  {
+    id: 'a0000000-0000-0000-0000-000000000001',
+    username: 'em_lop8',
+    fullName: 'Em Lớp 8',
+    role: 'student',
+    pinCode: '1234',
+    streakDays: 1,
+  },
+  {
+    id: 'a0000000-0000-0000-0000-000000000002',
+    username: 'admin',
+    fullName: 'Quản Trị Viên (Anh/Chị)',
+    role: 'admin',
+    pinCode: 'admin123',
+    streakDays: 0,
+  },
+];
+
+export function getLocalUsers(): UserSession[] {
+  const raw = safeGetItem(STORAGE_KEYS.LOCAL_USERS);
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed;
+      }
+    } catch (e) {
+      console.warn('Failed to parse local users:', e);
+    }
+  }
+  // Initialize with default accounts if empty
+  saveLocalUsers(INITIAL_ACCOUNTS);
+  return [...INITIAL_ACCOUNTS];
+}
+
+export function saveLocalUsers(users: UserSession[]): void {
+  safeSetItem(STORAGE_KEYS.LOCAL_USERS, JSON.stringify(users));
+}
+
+export function addLocalUser(user: UserSession): void {
+  const users = getLocalUsers();
+  const existingIdx = users.findIndex(u => u.username.toLowerCase() === user.username.toLowerCase());
+  if (existingIdx >= 0) {
+    users[existingIdx] = { ...users[existingIdx], ...user };
+  } else {
+    users.push(user);
+  }
+  saveLocalUsers(users);
+}
+
+export function updateLocalUser(username: string, updates: Partial<UserSession>): boolean {
+  const users = getLocalUsers();
+  const idx = users.findIndex(u => u.username.toLowerCase() === username.toLowerCase());
+  if (idx >= 0) {
+    users[idx] = { ...users[idx], ...updates };
+    saveLocalUsers(users);
+    return true;
+  }
+  return false;
+}
+
+export function deleteLocalUser(username: string): boolean {
+  if (username === 'admin' || username === 'em_lop8') {
+    return false; // Cannot delete system default users
+  }
+  const users = getLocalUsers().filter(u => u.username.toLowerCase() !== username.toLowerCase());
+  saveLocalUsers(users);
+  return true;
 }
 
 // ---------------------------------------------------------------------------

@@ -32,7 +32,7 @@ export const ProgressAnalytics: React.FC = () => {
           Bảng Theo Dõi Thành Tích & Năng Lực 5 Kỹ Năng
         </h2>
         <p className="text-xs text-slate-500 mt-1">
-          Đo lường tiến độ học tập liên tục của tài khoản: <strong>{user.username}</strong>
+          Đo lường tiến độ học tập liên tục của tài khoản: <strong>{user?.username || 'em_lop8'}</strong>
         </p>
       </div>
 
