@@ -24,6 +24,10 @@ const AppContent: React.FC = () => {
   const { role } = useAuth();
 
   useEffect(() => {
+    if (!window.location.hash || window.location.hash === '#/' || window.location.hash === '#') {
+      window.location.hash = '#/dashboard';
+    }
+
     const handleHashChange = () => {
       setCurrentHash(window.location.hash || '#/dashboard');
     };

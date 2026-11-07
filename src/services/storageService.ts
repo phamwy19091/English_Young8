@@ -369,9 +369,25 @@ export function getSystemConfig(): SystemConfig {
         updatedAt: new Date().toISOString(),
       };
     }
+    const rawAssignments = Array.isArray(parsed.assignments) ? parsed.assignments : [];
+    const normalizedAssignments = rawAssignments.map((a: any) => ({
+      id: a?.id || `asg_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      title: a?.title || 'Nhiệm vụ bài tập',
+      type: a?.type || (a?.targetType === 'exam' ? 'exam' : 'unit'),
+      targetId: a?.targetId ?? a?.targetValue ?? 1,
+      dueDate: a?.dueDate || new Date().toISOString().split('T')[0],
+      minScore: Number(a?.minScore) || 8.0,
+      assignedTo: Array.isArray(a?.assignedTo)
+        ? a.assignedTo
+        : a?.studentUsername
+        ? [a.studentUsername]
+        : ['all'],
+      createdAt: a?.createdAt || new Date().toISOString(),
+    }));
+
     return {
       ...parsed,
-      assignments: Array.isArray(parsed.assignments) ? parsed.assignments : [],
+      assignments: normalizedAssignments,
       customQuestions: Array.isArray(parsed.customQuestions) ? parsed.customQuestions : [],
       updatedAt: typeof parsed.updatedAt === 'string' ? parsed.updatedAt : new Date().toISOString(),
     };

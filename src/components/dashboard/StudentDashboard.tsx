@@ -25,9 +25,16 @@ export const StudentDashboard: React.FC = () => {
 
   // Load assignments for this student
   const sysConfig = getSystemConfig();
-  const studentAssignments = (sysConfig.assignments || []).filter(
-    asg => asg.assignedTo.includes('all') || asg.assignedTo.includes(user.username)
-  );
+  const currentUsername = user?.username || 'em_lop8';
+  const studentAssignments = (sysConfig?.assignments || []).filter(asg => {
+    if (!asg) return false;
+    const targets = Array.isArray(asg.assignedTo)
+      ? asg.assignedTo
+      : (asg as any).studentUsername
+      ? [(asg as any).studentUsername]
+      : ['all'];
+    return targets.includes('all') || targets.includes(currentUsername);
+  });
 
   return (
     <div className="dashboard-view max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full space-y-8">
