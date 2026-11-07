@@ -99,8 +99,8 @@ describe('Challenger M2 Empirical Stress Suite', () => {
     describe('1.4 Exhaustive Validation across All 36 Curriculum Written Exercises', () => {
       const allWrittenExercises = unitsData.flatMap(u => u.writtenExercises || []);
 
-      it('has exactly 36 written exercises across 6 units', () => {
-        expect(allWrittenExercises).toHaveLength(36);
+      it('has 72 written exercises across 12 units', () => {
+        expect(allWrittenExercises).toHaveLength(72);
       });
 
       allWrittenExercises.forEach((ex, idx) => {
@@ -186,9 +186,9 @@ describe('Challenger M2 Empirical Stress Suite', () => {
         expect(isSpellingMatch('concentrate (on)', 'concentrate in')).toBe(false);
       });
 
-      it('tests all 86 curriculum vocabulary items with isSpellingMatch', () => {
+      it('tests all 170 curriculum vocabulary items with isSpellingMatch', () => {
         const allVocab = unitsData.flatMap(u => u.vocab || []);
-        expect(allVocab).toHaveLength(86);
+        expect(allVocab).toHaveLength(170);
 
         allVocab.forEach(v => {
           // Exact match passes

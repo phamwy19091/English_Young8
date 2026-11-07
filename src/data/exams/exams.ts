@@ -1,6 +1,8 @@
 import { ExamData } from '../../types/curriculum';
+import { semester2Exams } from './semester2Exams';
+import { entrance10Exams } from './entrance10Exams';
 
-export const examsData: ExamData[] = [
+const semester1Exams: ExamData[] = [
   {
     "id": "exam-15m-1",
     "title": "Đề kiểm tra 15 phút số 1 (Unit 1 & Unit 2)",
@@ -1696,4 +1698,10 @@ export const examsData: ExamData[] = [
       }
     ]
   }
+];
+
+export const examsData: ExamData[] = [
+  ...semester1Exams,
+  ...semester2Exams,
+  ...entrance10Exams
 ];

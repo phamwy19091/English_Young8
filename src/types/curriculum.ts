@@ -88,7 +88,8 @@ export interface ExamData {
   durationMinutes: number;
   grade: number;
   semester: number;
-  type: '15m' | 'midterm' | 'final';
+  type: '15m' | 'midterm' | 'final' | 'entrance10';
+  targetScore?: string;
   scope?: string;
   description?: string;
   questions: UnitQuestion[];

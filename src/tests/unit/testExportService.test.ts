@@ -123,11 +123,13 @@ describe('Test Generator & Export Service', () => {
         question: 'Custom question prompt test?',
         options: ['A. one', 'B. two', 'C. three', 'D. four'],
         answer: 1,
-        explanation: 'Custom explanation'
+        explanation: 'Custom explanation',
+        custom: true as const,
+        createdAt: '2026-11-07'
       }
     ];
 
-    const paper = generateTestPaper({ ...defaultOptions, unitScope: 'all', mcqCount: 50 }, customQ);
+    const paper = generateTestPaper({ ...defaultOptions, unitScope: 'all', mcqCount: 500, shuffleQuestions: false }, customQ);
     const foundCustom = paper.mcqQuestions.some(q => q.id === 'cust-1');
     expect(foundCustom).toBe(true);
   });

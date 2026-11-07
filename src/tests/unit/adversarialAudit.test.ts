@@ -56,7 +56,7 @@ describe('Adversarial M1 Audit: Legacy vs TypeScript Modules Fidelity', () => {
   const { legacyUnits, legacyExams, legacyWritten } = loadLegacyStudyData();
 
   it('Stress-test 1: Unit counts and root metadata must match 100%', () => {
-    expect(unitsData).toHaveLength(6);
+    expect(unitsData.length).toBeGreaterThanOrEqual(6);
     expect(legacyUnits).toHaveLength(6);
 
     for (let i = 0; i < 6; i++) {
@@ -196,7 +196,7 @@ describe('Adversarial M1 Audit: Legacy vs TypeScript Modules Fidelity', () => {
   });
 
   it('Stress-test 7: Exams metadata and questions full-fidelity comparison (6 exams, 121 questions)', () => {
-    expect(examsData).toHaveLength(6);
+    expect(examsData.length).toBeGreaterThanOrEqual(6);
     expect(legacyExams).toHaveLength(6);
 
     let totalQuestions = 0;
@@ -231,8 +231,9 @@ describe('Adversarial M1 Audit: Legacy vs TypeScript Modules Fidelity', () => {
   });
 
   it('Stress-test 8: Reading passage group integrity across exams', () => {
-    // Collect all questions with passages
-    const allQuestionsWithPassage = examsData.flatMap((e) =>
+    // Collect all questions with passages across Semester 1 exams
+    const sem1Exams = examsData.slice(0, 6);
+    const allQuestionsWithPassage = sem1Exams.flatMap((e) =>
       e.questions.filter((q) => !!q.passage)
     );
 
@@ -260,7 +261,7 @@ describe('Adversarial M1 Audit: Legacy vs TypeScript Modules Fidelity', () => {
     expect(groupMap.size).toBe(5);
 
     // Verify questions that should NOT have passages have passage === undefined
-    const questionsWithoutPassage = examsData.flatMap((e) =>
+    const questionsWithoutPassage = sem1Exams.flatMap((e) =>
       e.questions.filter((q) => !q.passage)
     );
     expect(questionsWithoutPassage).toHaveLength(121 - 19); // 102 questions
@@ -277,8 +278,8 @@ describe('Adversarial M1 Audit: Question Quality & Boundary Stress Testing', () 
     ...examsData.flatMap((e) => e.questions),
   ];
 
-  it('Stress-test 9: All 193 multiple-choice questions must have exactly 4 non-empty options', () => {
-    expect(allQuestions).toHaveLength(193); // 72 unit MCQs + 121 exam MCQs
+  it('Stress-test 9: All multiple-choice questions must have exactly 4 non-empty options', () => {
+    expect(allQuestions).toHaveLength(437); // 144 unit MCQs + 293 exam MCQs
 
     allQuestions.forEach((q) => {
       expect(q.options).toHaveLength(4);
@@ -293,7 +294,7 @@ describe('Adversarial M1 Audit: Question Quality & Boundary Stress Testing', () 
     });
   });
 
-  it('Stress-test 10: All 193 multiple-choice questions must have answer in range 0..3', () => {
+  it('Stress-test 10: All multiple-choice questions must have answer in range 0..3', () => {
     allQuestions.forEach((q) => {
       expect(Number.isInteger(q.answer)).toBe(true);
       expect(q.answer).toBeGreaterThanOrEqual(0);
@@ -303,7 +304,7 @@ describe('Adversarial M1 Audit: Question Quality & Boundary Stress Testing', () 
     });
   });
 
-  it('Stress-test 11: Global ID uniqueness across all 229 questions', () => {
+  it('Stress-test 11: Global ID uniqueness across all questions', () => {
     const allUnitQuizIds = unitsData.flatMap((u) => u.quiz.map((q) => q.id));
     const allWrittenIds = unitsData.flatMap((u) =>
       u.writtenExercises.map((w) => w.id)
@@ -317,17 +318,17 @@ describe('Adversarial M1 Audit: Question Quality & Boundary Stress Testing', () 
       ...allWrittenIds,
       ...allExamQuestionIds,
     ];
-    expect(allCombinedIds).toHaveLength(229);
+    expect(allCombinedIds).toHaveLength(509);
 
     const uniqueIds = new Set(allCombinedIds);
-    expect(uniqueIds.size).toBe(229);
+    expect(uniqueIds.size).toBe(509);
   });
 
-  it('Stress-test 12: Global Vocabulary ID uniqueness (86 vocabs)', () => {
+  it('Stress-test 12: Global Vocabulary ID uniqueness (170 vocabs)', () => {
     const allVocabIds = unitsData.flatMap((u) => u.vocab.map((v) => v.id));
-    expect(allVocabIds).toHaveLength(86);
+    expect(allVocabIds).toHaveLength(170);
     const uniqueVocabIds = new Set(allVocabIds);
-    expect(uniqueVocabIds.size).toBe(86);
+    expect(uniqueVocabIds.size).toBe(170);
   });
 
   it('Stress-test 13: Non-empty explanations and no placeholder/corrupted strings', () => {

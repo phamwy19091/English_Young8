@@ -38,7 +38,13 @@ export const UnitPractice: React.FC<UnitPracticeProps> = ({
     }
   }, [initialSubTab]);
 
-  const currentUnit = unitsData.find(u => Number(u.id) === Number(selectedUnitId)) || unitsData[0];
+  const getUnitNum = (u: any): number => {
+    if (typeof u.number === 'number') return u.number;
+    const match = String(u.id).match(/\d+/);
+    return match ? parseInt(match[0], 10) : 1;
+  };
+
+  const currentUnit = unitsData.find(u => getUnitNum(u) === Number(selectedUnitId) || u.id === selectedUnitId || u.id === `unit-${selectedUnitId}`) || unitsData[0];
 
   const handleUnitChange = (id: number) => {
     setSelectedUnitId(id);
@@ -51,27 +57,69 @@ export const UnitPractice: React.FC<UnitPracticeProps> = ({
     window.location.hash = `#/unit/unit-${selectedUnitId}/${tab}`;
   };
 
+  const [semesterFilter, setSemesterFilter] = useState<'all' | 1 | 2>('all');
+  const displayedUnits = semesterFilter === 'all'
+    ? unitsData
+    : unitsData.filter(u => (u.semester || (getUnitNum(u) <= 6 ? 1 : 2)) === semesterFilter);
+
   return (
     <div className="unit-study-container max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 w-full">
-      {/* Unit Selector Strip */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-3 mb-6 scrollbar-none">
-        {unitsData.map(u => {
-          const isSelected = Number(u.id) === Number(selectedUnitId);
-          return (
-            <button
-              key={u.id}
-              onClick={() => handleUnitChange(Number(u.id))}
-              className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold whitespace-nowrap transition-all border ${
-                isSelected
-                  ? 'bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-100 scale-102'
-                  : 'bg-white text-slate-700 border-slate-200/80 hover:bg-slate-50 hover:border-slate-300'
-              }`}
-            >
-              <span className="text-base">{u.icon || '📘'}</span>
-              <span>Unit {u.id}: {u.title}</span>
-            </button>
-          );
-        })}
+      {/* Semester Filter & Unit Selector Strip */}
+      <div className="flex flex-col gap-3 mb-6">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-bold text-slate-500 mr-1">Học kỳ:</span>
+          <button
+            onClick={() => setSemesterFilter('all')}
+            className={`px-3 py-1 rounded-full text-xs font-bold transition-all ${
+              semesterFilter === 'all'
+                ? 'bg-slate-900 text-white'
+                : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+            }`}
+          >
+            Tất cả 12 Unit
+          </button>
+          <button
+            onClick={() => setSemesterFilter(1)}
+            className={`px-3 py-1 rounded-full text-xs font-bold transition-all ${
+              semesterFilter === 1
+                ? 'bg-indigo-600 text-white shadow-sm'
+                : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700'
+            }`}
+          >
+            Học kỳ 1 (Unit 1 - 6)
+          </button>
+          <button
+            onClick={() => setSemesterFilter(2)}
+            className={`px-3 py-1 rounded-full text-xs font-bold transition-all ${
+              semesterFilter === 2
+                ? 'bg-purple-600 text-white shadow-sm'
+                : 'bg-purple-50 hover:bg-purple-100 text-purple-700'
+            }`}
+          >
+            Học kỳ 2 (Unit 7 - 12)
+          </button>
+        </div>
+
+        <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none">
+          {displayedUnits.map(u => {
+            const uNum = getUnitNum(u);
+            const isSelected = uNum === Number(selectedUnitId) || u.id === selectedUnitId;
+            return (
+              <button
+                key={u.id}
+                onClick={() => handleUnitChange(uNum)}
+                className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold whitespace-nowrap transition-all border shrink-0 ${
+                  isSelected
+                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-100 scale-102'
+                    : 'bg-white text-slate-700 border-slate-200/80 hover:bg-slate-50 hover:border-slate-300'
+                }`}
+              >
+                <span className="text-base">{u.icon || '📘'}</span>
+                <span>Unit {uNum}: {u.title}</span>
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {/* Unit Hero Banner */}

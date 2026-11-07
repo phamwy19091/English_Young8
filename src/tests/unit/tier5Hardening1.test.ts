@@ -1083,8 +1083,8 @@ describe('Tier 5 Adversarial Coverage Hardening — Challenger 1', () => {
   // 7. WHOLE CURRICULUM INTEGRITY CHECK & ZERO GAP VERIFICATION
   // =========================================================================
   describe('7. Whole Curriculum Integrity & Boundary Invariants', () => {
-    it('7.1 verifies all 6 units contain required data structures matching interface contracts', () => {
-      expect(unitsData.length).toBe(6);
+    it('7.1 verifies all 12 units contain required data structures matching interface contracts', () => {
+      expect(unitsData.length).toBe(12);
       unitsData.forEach((unit, idx) => {
         expect(unit.id === idx + 1 || unit.id === `unit-${idx + 1}`).toBe(true);
         expect(unit.title).toBeDefined();
@@ -1096,8 +1096,8 @@ describe('Tier 5 Adversarial Coverage Hardening — Challenger 1', () => {
       });
     });
 
-    it('7.2 verifies all 6 exams contain valid questions and durations matching interface contracts', () => {
-      expect(examsData.length).toBe(6);
+    it('7.2 verifies all 14 exams contain valid questions and durations matching interface contracts', () => {
+      expect(examsData.length).toBe(14);
       examsData.forEach(exam => {
         expect(exam.id).toBeDefined();
         expect(exam.title).toBeDefined();

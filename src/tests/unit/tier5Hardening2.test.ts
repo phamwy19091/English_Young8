@@ -312,14 +312,14 @@ describe('Tier 5 Adversarial Hardening Suite 2 (Challenger 2)', () => {
     });
 
     describe('1.2 ExamList Smart Adaptive Algorithm & Historical Max Calculations', () => {
-      it('1.2.1 aggregates all bank questions across all 6 units and 6 exams (193 questions)', () => {
+      it('1.2.1 aggregates all bank questions across all 12 units and 14 exams (437 questions)', () => {
         const allBankQuestions: UnitQuestion[] = [];
         unitsData.forEach(u => allBankQuestions.push(...(u.quiz || [])));
         examsData.forEach(e => allBankQuestions.push(...(e.questions || [])));
 
-        expect(allBankQuestions.length).toBe(72 + 121); // 193 questions
-        expect(unitsData.length).toBe(6);
-        expect(examsData.length).toBe(6);
+        expect(allBankQuestions.length).toBe(144 + 293); // 437 questions
+        expect(unitsData.length).toBe(12);
+        expect(examsData.length).toBe(14);
       });
 
       it('1.2.2 generateSmartAdaptiveQuiz respects 70% mistake target and fills remainder from bank without duplicates', () => {

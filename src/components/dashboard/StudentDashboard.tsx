@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { unitsData } from '../../data/units';
 import { useAuth } from '../../context/AuthContext';
 import { useStudy } from '../../context/StudyContext';
@@ -20,8 +20,19 @@ export const StudentDashboard: React.FC = () => {
   const { user } = useAuth();
   const { streakDays, totalLearnedVocabCount, unitScores, examHistory } = useStudy();
   const { unresolvedCount } = useMistakes();
+  const [semesterFilter, setSemesterFilter] = useState<'all' | 1 | 2>('all');
 
   const totalVocab = unitsData.reduce((acc, u) => acc + u.vocab.length, 0);
+
+  const getUnitNumber = (u: any): number => {
+    if (typeof u.number === 'number') return u.number;
+    const match = String(u.id).match(/\d+/);
+    return match ? parseInt(match[0], 10) : 1;
+  };
+
+  const displayedUnits = semesterFilter === 'all'
+    ? unitsData
+    : unitsData.filter(u => (u.semester || (getUnitNumber(u) <= 6 ? 1 : 2)) === semesterFilter);
 
   // Load assignments for this student
   const sysConfig = getSystemConfig();
@@ -43,7 +54,7 @@ export const StudentDashboard: React.FC = () => {
         <div className="space-y-3 max-w-2xl">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-800/80 text-indigo-200 text-xs font-semibold border border-indigo-700/60">
             <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-            <span>Tiếng Anh 8 Global Success • Học kì 1</span>
+            <span>Tiếng Anh 8 Global Success • Học kì 1 & Học kì 2</span>
           </div>
 
           <h2 className="text-2xl sm:text-4xl font-black tracking-tight leading-tight">
@@ -152,25 +163,55 @@ export const StudentDashboard: React.FC = () => {
         </div>
       )}
 
-      {/* 6 Units Hub */}
+      {/* Curriculum Units Hub */}
       <div>
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-5">
           <div>
             <h3 className="text-xl font-bold text-slate-900">
-              Chương trình học tập 6 Unit (Semester 1)
+              Chương trình học tập 12 Unit (Global Success)
             </h3>
             <p className="text-xs text-slate-500">
-              Toàn bộ từ vựng, ngữ âm, ngữ pháp, bài tập trắc nghiệm và tự luận.
+              Toàn bộ từ vựng, ngữ âm, ngữ pháp, bài tập trắc nghiệm và tự luận viết câu cả năm học.
             </p>
           </div>
-          <span className="text-xs font-bold px-3 py-1 bg-indigo-50 text-indigo-700 rounded-full">
-            Unit 1 – Unit 6
-          </span>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setSemesterFilter('all')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                semesterFilter === 'all'
+                  ? 'bg-slate-900 text-white shadow-sm'
+                  : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+              }`}
+            >
+              Tất cả (12 Units)
+            </button>
+            <button
+              onClick={() => setSemesterFilter(1)}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                semesterFilter === 1
+                  ? 'bg-indigo-600 text-white shadow-sm'
+                  : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700'
+              }`}
+            >
+              Học kỳ 1
+            </button>
+            <button
+              onClick={() => setSemesterFilter(2)}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                semesterFilter === 2
+                  ? 'bg-purple-600 text-white shadow-sm'
+                  : 'bg-purple-50 hover:bg-purple-100 text-purple-700'
+              }`}
+            >
+              Học kỳ 2
+            </button>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {unitsData.map(unit => {
-            const unitNum = unit.number || Number(String(unit.id).replace(/^unit-?/i, ''));
+          {displayedUnits.map(unit => {
+            const unitNum = getUnitNumber(unit);
             const best = unitScores[unitNum] ?? null;
 
             return (
