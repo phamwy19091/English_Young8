@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense, lazy } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { StudyProvider, useStudy } from './context/StudyContext';
 import { MistakeProvider } from './context/MistakeContext';
@@ -6,16 +6,40 @@ import { ToastProvider } from './components/common/Toast';
 import { Header } from './components/layout/Header';
 import { MobileBottomNav } from './components/layout/MobileBottomNav';
 import { StudentDashboard } from './components/dashboard/StudentDashboard';
-import { UnitPractice } from './components/practice/UnitPractice';
-import { ExamList } from './components/exam/ExamList';
-import { ExamRoom } from './components/exam/ExamRoom';
-import { MistakesNotebook } from './components/mistakes/MistakesNotebook';
-import { ProgressAnalytics } from './components/analytics/ProgressAnalytics';
-import { AdminPortal } from './components/admin/AdminPortal';
 import { AuthPortal } from './components/auth/AuthPortal';
-import { GameHub } from './components/games/GameHub';
 import { ExamData } from './types/curriculum';
 import { examsData } from './data/exams';
+
+const UnitPractice = lazy(() =>
+  import('./components/practice/UnitPractice').then(m => ({ default: m.UnitPractice }))
+);
+const ExamList = lazy(() =>
+  import('./components/exam/ExamList').then(m => ({ default: m.ExamList }))
+);
+const ExamRoom = lazy(() =>
+  import('./components/exam/ExamRoom').then(m => ({ default: m.ExamRoom }))
+);
+const MistakesNotebook = lazy(() =>
+  import('./components/mistakes/MistakesNotebook').then(m => ({ default: m.MistakesNotebook }))
+);
+const ProgressAnalytics = lazy(() =>
+  import('./components/analytics/ProgressAnalytics').then(m => ({ default: m.ProgressAnalytics }))
+);
+const AdminPortal = lazy(() =>
+  import('./components/admin/AdminPortal').then(m => ({ default: m.AdminPortal }))
+);
+const GameHub = lazy(() =>
+  import('./components/games/GameHub').then(m => ({ default: m.GameHub }))
+);
+
+const ViewLoadingFallback: React.FC = () => (
+  <div className="flex items-center justify-center min-h-[50vh] text-slate-500">
+    <div className="flex flex-col items-center gap-3">
+      <div className="w-8 h-8 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin" />
+      <span className="text-sm font-medium">Đang tải nội dung học tập...</span>
+    </div>
+  </div>
+);
 
 const AppContent: React.FC = () => {
   const { user, role, isAuthenticated } = useAuth();
@@ -145,7 +169,9 @@ const AppContent: React.FC = () => {
 
       {/* Main content view */}
       <main className="main-container flex-1 w-full">
-        {renderCurrentView()}
+        <Suspense fallback={<ViewLoadingFallback />}>
+          {renderCurrentView()}
+        </Suspense>
       </main>
 
       {/* Mobile Bottom Navigation (only for students) */}
