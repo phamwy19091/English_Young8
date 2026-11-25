@@ -1,4 +1,4 @@
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { createClient, SupabaseClient, User as SupabaseAuthUser } from '@supabase/supabase-js';
 import { StudentSnapshot, MistakeItem, SystemConfig } from '../types/storage';
 import { UserSession } from '../types/user';
 import {
@@ -13,15 +13,50 @@ import {
   updateLocalUser,
   deleteLocalUser,
   normalizeMistakeItem,
-  normalizeExamAttempt
+  normalizeExamAttempt,
 } from './storageService';
 
 export const DEFAULT_SUPABASE_CONFIG = {
-  PROJECT_REF: 'iiltwryccctzjbfddjcw',
-  URL: 'https://iiltwryccctzjbfddjcw.supabase.co',
-  ANON_KEY:
-    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlpbHR3cnljY2N0empiZmRkamN3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTMyNzMxMTgsImV4cCI6MjEwODg0OTExOH0.6hJjVxbdeFrCyvd-VN_U_rJY-jqAFIY7WbqRZLv6axo',
+  URL: (import.meta.env.VITE_SUPABASE_URL || '').trim(),
+  ANON_KEY: (import.meta.env.VITE_SUPABASE_ANON_KEY || '').trim(),
 };
+
+const SYNTHETIC_EMAIL_DOMAIN = 'students.englishyoung8.app';
+
+/**
+ * Maps a username to a valid email address for Supabase Auth,
+ * or returns the trimmed lowercase email directly if the user entered an email.
+ */
+export function toSupabaseAuthEmail(identifier: string): string {
+  const clean = (identifier || '').trim().toLowerCase();
+  if (clean.includes('@')) {
+    return clean;
+  }
+  return `${clean}@${SYNTHETIC_EMAIL_DOMAIN}`;
+}
+
+/**
+ * Extracts a clean display username from a Supabase Auth user object.
+ */
+function extractUsername(authUser: SupabaseAuthUser, fallback?: string): string {
+  const metaUsername =
+    typeof authUser.user_metadata?.username === 'string'
+      ? authUser.user_metadata.username.trim().toLowerCase()
+      : '';
+  if (metaUsername) return metaUsername;
+  if (fallback) return fallback.trim().toLowerCase();
+  if (authUser.email) {
+    return authUser.email.split('@')[0].toLowerCase();
+  }
+  return `user_${authUser.id.slice(0, 8)}`;
+}
+
+/**
+ * Resolves the user's role strictly from server-controlled app_metadata (NEVER user_metadata).
+ */
+function extractTrustedRole(authUser: SupabaseAuthUser): 'student' | 'admin' {
+  return authUser.app_metadata?.role === 'admin' ? 'admin' : 'student';
+}
 
 class SupabaseService {
   private client: SupabaseClient | null = null;
@@ -49,13 +84,17 @@ class SupabaseService {
       try {
         this.client = createClient(this.url, this.anonKey, {
           auth: {
-            persistSession: false,
+            persistSession: true,
+            autoRefreshToken: true,
+            detectSessionInUrl: true,
           },
         });
       } catch (err) {
         console.warn('Failed to initialize Supabase client:', err);
         this.client = null;
       }
+    } else {
+      this.client = null;
     }
   }
 
@@ -78,7 +117,78 @@ class SupabaseService {
   }
 
   /**
-   * Pushes the student snapshot to Supabase with automatic local storage fallback.
+   * Verifies the active Supabase Auth session with the server and builds a trusted UserSession.
+   * Returns null if not signed in or if Supabase is not configured.
+   */
+  public async getVerifiedSession(): Promise<UserSession | null> {
+    if (!this.client) return null;
+
+    try {
+      const { data, error } = await this.client.auth.getUser();
+      if (error || !data?.user) {
+        return null;
+      }
+      return await this.buildSessionFromAuthUser(data.user);
+    } catch (err) {
+      console.warn('Failed to verify Supabase auth session:', err);
+      return null;
+    }
+  }
+
+  private async buildSessionFromAuthUser(
+    authUser: SupabaseAuthUser,
+    fallbackUsername?: string
+  ): Promise<UserSession> {
+    const trustedRole = extractTrustedRole(authUser);
+    let username = extractUsername(authUser, fallbackUsername);
+    let fullName =
+      typeof authUser.user_metadata?.full_name === 'string' && authUser.user_metadata.full_name.trim()
+        ? authUser.user_metadata.full_name.trim()
+        : username;
+    let streakDays = 1;
+
+    if (this.client) {
+      try {
+        const { data: profile } = await this.client
+          .from('users')
+          .select('username, full_name, streak_days')
+          .eq('id', authUser.id)
+          .maybeSingle();
+
+        if (profile) {
+          if (profile.username) username = profile.username;
+          if (profile.full_name) fullName = profile.full_name;
+          if (typeof profile.streak_days === 'number') streakDays = profile.streak_days;
+        }
+      } catch (err) {
+        console.warn('Profile lookup after auth failed, using token metadata:', err);
+      }
+    }
+
+    return {
+      id: authUser.id,
+      username,
+      fullName,
+      role: trustedRole,
+      streakDays,
+      lastLoginAt: new Date().toISOString(),
+    };
+  }
+
+  /**
+   * Signs out from Supabase Auth if configured.
+   */
+  public async logout(): Promise<void> {
+    if (!this.client) return;
+    try {
+      await this.client.auth.signOut();
+    } catch (err) {
+      console.warn('Supabase signOut warning:', err);
+    }
+  }
+
+  /**
+   * Pushes the student snapshot to public.student_snapshots with automatic local storage fallback.
    */
   public async syncSnapshot(username: string, snapshot?: StudentSnapshot): Promise<boolean> {
     const dataToSync = snapshot || getStudentSnapshot(username);
@@ -91,11 +201,21 @@ class SupabaseService {
     }
 
     try {
-      const payloadString = JSON.stringify(dataToSync);
-      const { error } = await this.client
-        .from('users')
-        .update({ avatar_url: payloadString })
-        .eq('username', username);
+      const { data: authData } = await this.client.auth.getUser();
+      const userId = authData?.user?.id;
+      if (!userId) {
+        return false;
+      }
+
+      const { error } = await this.client.from('student_snapshots').upsert(
+        {
+          user_id: userId,
+          username,
+          snapshot_data: dataToSync,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'user_id' }
+      );
 
       if (error) {
         console.warn(`Cloud sync warning for user ${username}:`, error.message);
@@ -109,7 +229,7 @@ class SupabaseService {
   }
 
   /**
-   * Fetches student snapshot from cloud, falling back to local snapshot if offline.
+   * Fetches student snapshot from public.student_snapshots, falling back to local snapshot if offline.
    */
   public async fetchSnapshot(username: string): Promise<StudentSnapshot> {
     const local = getStudentSnapshot(username);
@@ -120,17 +240,16 @@ class SupabaseService {
 
     try {
       const { data, error } = await this.client
-        .from('users')
-        .select('avatar_url')
+        .from('student_snapshots')
+        .select('snapshot_data, updated_at')
         .eq('username', username)
         .maybeSingle();
 
-      if (error || !data || !data.avatar_url) {
+      if (error || !data || !data.snapshot_data) {
         return local;
       }
 
-      const cloudSnapshot: StudentSnapshot = JSON.parse(data.avatar_url);
-      // If cloud is newer or valid, update local cache
+      const cloudSnapshot = data.snapshot_data as StudentSnapshot;
       if (cloudSnapshot && cloudSnapshot.updatedAt) {
         const cloudTime = new Date(cloudSnapshot.updatedAt).getTime();
         const localTime = new Date(local.updatedAt).getTime();
@@ -147,7 +266,8 @@ class SupabaseService {
   }
 
   /**
-   * Syncs system config (homework assignments & custom questions).
+   * Syncs system config (homework assignments & custom questions) to public.system_config.
+   * RLS ensures only authenticated admins can write to this table.
    */
   public async syncSystemConfig(config?: SystemConfig): Promise<boolean> {
     const data = config || getSystemConfig();
@@ -156,13 +276,20 @@ class SupabaseService {
     if (!this.client) return false;
 
     try {
-      const SYSTEM_USERNAME = '__ey8_system_store__';
-      const { error } = await this.client
-        .from('users')
-        .update({ avatar_url: JSON.stringify(data) })
-        .eq('username', SYSTEM_USERNAME);
+      const { error } = await this.client.from('system_config').upsert(
+        {
+          key: 'default',
+          config_data: data,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'key' }
+      );
 
-      return !error;
+      if (error) {
+        console.warn('Sync system config warning:', error.message);
+        return false;
+      }
+      return true;
     } catch (err) {
       console.warn('Sync system config exception:', err);
       return false;
@@ -170,15 +297,42 @@ class SupabaseService {
   }
 
   /**
-   * Tests connection to Supabase endpoint.
+   * Fetches system config from public.system_config with local fallback.
+   */
+  public async fetchSystemConfig(): Promise<SystemConfig> {
+    const local = getSystemConfig();
+    if (!this.client) return local;
+
+    try {
+      const { data, error } = await this.client
+        .from('system_config')
+        .select('config_data')
+        .eq('key', 'default')
+        .maybeSingle();
+
+      if (error || !data?.config_data) {
+        return local;
+      }
+
+      const cloudConfig = data.config_data as SystemConfig;
+      saveSystemConfig(cloudConfig);
+      return cloudConfig;
+    } catch (err) {
+      console.warn('Fetch system config exception:', err);
+      return local;
+    }
+  }
+
+  /**
+   * Tests connection to Supabase endpoint using a public catalog table (RLS-safe).
    */
   public async testConnection(): Promise<{ success: boolean; message: string }> {
     if (!this.client) {
-      return { success: false, message: 'Supabase client is not initialized.' };
+      return { success: false, message: 'Supabase client chưa được cấu hình.' };
     }
 
     try {
-      const { error } = await this.client.from('users').select('id').limit(1);
+      const { error } = await this.client.from('grades').select('id').limit(1);
       if (error && error.code !== 'PGRST116') {
         return { success: false, message: error.message };
       }
@@ -192,9 +346,12 @@ class SupabaseService {
   }
 
   /**
-   * Login user with username and password/PIN
+   * Login user with username/email and password via Supabase Auth (with offline local fallback).
    */
-  public async login(username: string, password: string): Promise<{ success: boolean; user?: UserSession; message?: string }> {
+  public async login(
+    username: string,
+    password: string
+  ): Promise<{ success: boolean; user?: UserSession; message?: string }> {
     const uName = (username || '').trim().toLowerCase();
     const pwd = (password || '').trim();
 
@@ -202,45 +359,46 @@ class SupabaseService {
       return { success: false, message: 'Vui lòng nhập đầy đủ Tên đăng nhập và Mật khẩu!' };
     }
 
-    // 1. Try Supabase Cloud first
+    // 1. Real Supabase Auth when configured
     if (this.client) {
       try {
-        const { data, error } = await this.client
-          .from('users')
-          .select('id, username, full_name, role, pin_code, avatar_url, streak_days')
-          .eq('username', uName)
-          .neq('role', 'system')
-          .maybeSingle();
+        const email = toSupabaseAuthEmail(uName);
+        const { data, error } = await this.client.auth.signInWithPassword({
+          email,
+          password: pwd,
+        });
 
-        if (!error && data) {
-          if (data.pin_code && data.pin_code !== pwd) {
-            return { success: false, message: 'Mật khẩu hoặc mã PIN không chính xác!' };
+        if (error) {
+          if (error.message.toLowerCase().includes('email not confirmed')) {
+            return {
+              success: false,
+              message: 'Tài khoản chưa xác nhận email. Vui lòng kiểm tra hộp thư hoặc liên hệ quản trị viên!',
+            };
           }
-
-          const userObj: UserSession = {
-            id: data.id,
-            username: data.username,
-            fullName: data.full_name || data.username,
-            role: (data.role as any) === 'admin' ? 'admin' : 'student',
-            pinCode: data.pin_code,
-            streakDays: data.streak_days || 1,
-            lastLoginAt: new Date().toISOString(),
+          return {
+            success: false,
+            message: 'Tên đăng nhập hoặc mật khẩu không chính xác!',
           };
+        }
 
-          // Cache to local users list
-          addLocalUser(userObj);
+        if (data?.user) {
+          const userObj = await this.buildSessionFromAuthUser(data.user, uName);
           return { success: true, user: userObj };
         }
       } catch (err) {
-        console.warn('Supabase login exception, falling back to local:', err);
+        console.warn('Supabase login network exception:', err);
+        return {
+          success: false,
+          message: 'Không thể kết nối máy chủ xác thực. Vui lòng kiểm tra mạng và thử lại!',
+        };
       }
     }
 
-    // 2. Fallback to local users
+    // 2. Offline / Local-only fallback (only when Supabase is NOT configured)
     const localUsers = getLocalUsers();
     const matched = localUsers.find(u => u.username.toLowerCase() === uName);
     if (matched) {
-      if (matched.pinCode && matched.pinCode !== pwd) {
+      if (!matched.pinCode || matched.pinCode !== pwd) {
         return { success: false, message: 'Mật khẩu hoặc mã PIN không chính xác!' };
       }
       return { success: true, user: matched };
@@ -253,7 +411,8 @@ class SupabaseService {
   }
 
   /**
-   * Register a new user
+   * Register a new student account via Supabase Auth (with offline local fallback).
+   * Note: Public self-registration ALWAYS creates role='student' (enforced in DB trigger + RLS).
    */
   public async register(payload: {
     username: string;
@@ -270,17 +429,67 @@ class SupabaseService {
       return { success: false, message: 'Vui lòng điền đầy đủ Họ tên, Tên đăng nhập và Mật khẩu!' };
     }
 
-    if (!/^[a-z0-9_]+$/.test(uName)) {
+    const isEmail = uName.includes('@');
+    if (!isEmail && !/^[a-z0-9_]+$/.test(uName)) {
       return {
         success: false,
         message: 'Tên đăng nhập chỉ được chứa chữ cái thường không dấu, số hoặc gạch dưới (_)!',
       };
     }
 
-    if (pwd.length < 4) {
-      return { success: false, message: 'Mật khẩu phải có ít nhất 4 ký tự!' };
+    const minPwdLen = this.client ? 6 : 4;
+    if (pwd.length < minPwdLen) {
+      return { success: false, message: `Mật khẩu phải có ít nhất ${minPwdLen} ký tự!` };
     }
 
+    // 1. Real Supabase Auth when configured
+    if (this.client) {
+      try {
+        const email = toSupabaseAuthEmail(uName);
+        const cleanUsername = isEmail ? uName.split('@')[0] : uName;
+
+        const { data, error } = await this.client.auth.signUp({
+          email,
+          password: pwd,
+          options: {
+            data: {
+              username: cleanUsername,
+              full_name: name,
+            },
+          },
+        });
+
+        if (error) {
+          if (error.message.toLowerCase().includes('already registered')) {
+            return { success: false, message: 'Tên đăng nhập hoặc email này đã được sử dụng!' };
+          }
+          return { success: false, message: error.message || 'Đăng ký tài khoản thất bại!' };
+        }
+
+        if (!data.user) {
+          return { success: false, message: 'Không thể khởi tạo tài khoản. Vui lòng thử lại!' };
+        }
+
+        if (!data.session) {
+          return {
+            success: false,
+            message:
+              'Đăng ký thành công! Vui lòng kiểm tra email để xác nhận tài khoản trước khi đăng nhập.',
+          };
+        }
+
+        const userSession = await this.buildSessionFromAuthUser(data.user, cleanUsername);
+        return { success: true, user: userSession };
+      } catch (err) {
+        console.warn('Supabase register error:', err);
+        return {
+          success: false,
+          message: 'Không thể kết nối máy chủ đăng ký. Vui lòng kiểm tra mạng và thử lại!',
+        };
+      }
+    }
+
+    // 2. Offline / Local-only mode
     const finalRole: 'student' | 'admin' = payload.createdByAdmin && payload.role ? payload.role : 'student';
     const localUsers = getLocalUsers();
 
@@ -299,40 +508,12 @@ class SupabaseService {
       lastLoginAt: new Date().toISOString(),
     };
 
-    // 1. Try Supabase Cloud
-    if (this.client) {
-      try {
-        const { data: existing } = await this.client
-          .from('users')
-          .select('id')
-          .eq('username', uName)
-          .maybeSingle();
-
-        if (existing) {
-          return { success: false, message: 'Tên đăng nhập này đã được sử dụng trên máy chủ Cloud!' };
-        }
-
-        await this.client.from('users').insert({
-          id: newId,
-          username: uName,
-          full_name: name,
-          role: finalRole,
-          pin_code: pwd,
-          streak_days: 1,
-          last_active_at: new Date().toISOString(),
-        });
-      } catch (err) {
-        console.warn('Supabase register error:', err);
-      }
-    }
-
-    // 2. Save locally
     addLocalUser(userSession);
     return { success: true, user: userSession };
   }
 
   /**
-   * Get all registered users (for Admin Portal)
+   * Get all registered users (for Admin Portal; enforced by RLS on Supabase).
    */
   public async getAllUsers(): Promise<UserSession[]> {
     const localList = getLocalUsers();
@@ -341,8 +522,8 @@ class SupabaseService {
       try {
         const { data, error } = await this.client
           .from('users')
-          .select('id, username, full_name, role, pin_code, avatar_url, streak_days, last_active_at, created_at')
-          .neq('username', '__ey8_system_store__')
+          .select('id, username, full_name, role, streak_days, last_active_at, created_at')
+          .neq('role', 'system')
           .order('created_at', { ascending: true });
 
         if (!error && data && data.length > 0) {
@@ -350,8 +531,7 @@ class SupabaseService {
             id: row.id,
             username: row.username,
             fullName: row.full_name || row.username,
-            role: (row.role as any) === 'admin' ? 'admin' : 'student',
-            pinCode: row.pin_code || '****',
+            role: row.role === 'admin' ? 'admin' : 'student',
             streakDays: row.streak_days || 1,
             lastLoginAt: row.last_active_at,
           }));
@@ -368,7 +548,7 @@ class SupabaseService {
   }
 
   /**
-   * Update user info or password
+   * Update user profile info (non-password fields in cloud; password reset requires Supabase Auth flow).
    */
   public async updateUserPasswordOrInfo(
     username: string,
@@ -378,11 +558,16 @@ class SupabaseService {
 
     if (this.client) {
       try {
-        const dbUpdates: any = {};
+        const dbUpdates: Record<string, unknown> = {};
         if (updates.fullName) dbUpdates.full_name = updates.fullName;
-        if (updates.pinCode) dbUpdates.pin_code = updates.pinCode;
         if (updates.role) dbUpdates.role = updates.role;
-        await this.client.from('users').update(dbUpdates).eq('username', username);
+
+        if (Object.keys(dbUpdates).length > 0) {
+          const { error } = await this.client.from('users').update(dbUpdates).eq('username', username);
+          if (error) {
+            return { success: false, message: error.message };
+          }
+        }
       } catch (err) {
         console.warn('Supabase updateUser error:', err);
       }
@@ -392,7 +577,7 @@ class SupabaseService {
   }
 
   /**
-   * Delete user account
+   * Delete user profile record (enforced as Admin-only by RLS on Supabase).
    */
   public async deleteUserAccount(username: string): Promise<{ success: boolean; message?: string }> {
     if (username === 'admin' || username === 'em_lop8') {
@@ -403,7 +588,10 @@ class SupabaseService {
 
     if (this.client) {
       try {
-        await this.client.from('users').delete().eq('username', username);
+        const { error } = await this.client.from('users').delete().eq('username', username);
+        if (error) {
+          return { success: false, message: error.message };
+        }
       } catch (err) {
         console.warn('Supabase deleteUser error:', err);
       }
@@ -413,7 +601,7 @@ class SupabaseService {
   }
 
   /**
-   * Fetch full student record from Supabase Cloud (avatar_url snapshot + quiz_attempts)
+   * Fetch full student record from Supabase Cloud (student_snapshots + quiz_attempts)
    * Falls back to local snapshot if offline or user not found.
    */
   public async fetchStudentFullRecord(username: string, userId?: string): Promise<StudentSnapshot> {
@@ -425,8 +613,8 @@ class SupabaseService {
 
     try {
       const userQuery = username
-        ? this.client.from('users').select('*').eq('username', username).maybeSingle()
-        : this.client.from('users').select('*').eq('id', userId).maybeSingle();
+        ? this.client.from('users').select('id, username, streak_days').eq('username', username).maybeSingle()
+        : this.client.from('users').select('id, username, streak_days').eq('id', userId).maybeSingle();
 
       const { data: userRow, error } = await userQuery;
       if (error || !userRow) {
@@ -436,11 +624,15 @@ class SupabaseService {
       const resolvedId = userRow.id || userId;
       let cloudSnapshotRaw: any = null;
 
-      if (userRow.avatar_url && typeof userRow.avatar_url === 'string' && userRow.avatar_url.startsWith('{')) {
-        try {
-          cloudSnapshotRaw = JSON.parse(userRow.avatar_url);
-        } catch (e) {
-          console.warn('Failed to parse avatar_url snapshot for', username, e);
+      if (resolvedId) {
+        const { data: snapRow } = await this.client
+          .from('student_snapshots')
+          .select('snapshot_data')
+          .eq('user_id', resolvedId)
+          .maybeSingle();
+
+        if (snapRow?.snapshot_data && typeof snapRow.snapshot_data === 'object') {
+          cloudSnapshotRaw = snapRow.snapshot_data;
         }
       }
 
@@ -491,25 +683,26 @@ class SupabaseService {
       const rawExList = Array.isArray(rawExams) ? rawExams : Object.values(rawExams);
       examHistory = rawExList.map(normalizeExamAttempt);
 
-      // If relational quiz attempts exist, make sure they are in examHistory
       if (relationalAttempts.length > 0) {
         const existingExamIds = new Set(examHistory.map(h => h.id || `${h.examId}_${h.date}`));
         for (const att of relationalAttempts) {
           if (!existingExamIds.has(att.id)) {
-            examHistory.push(normalizeExamAttempt({
-              id: att.id,
-              examId: att.exercise_id,
-              examTitle: `Bài kiểm tra ${att.exercise_id}`,
-              score: att.score,
-              score10: att.score,
-              raw_score: att.raw_score,
-              correct: att.raw_score,
-              total_questions: att.total_questions,
-              time_spent_seconds: att.time_spent_seconds || 0,
-              date: new Date(att.completed_at).toLocaleString('vi-VN'),
-              submittedAt: att.completed_at,
-              answers: {}
-            }));
+            examHistory.push(
+              normalizeExamAttempt({
+                id: att.id,
+                examId: att.exercise_id,
+                examTitle: `Bài kiểm tra ${att.exercise_id}`,
+                score: att.score,
+                score10: att.score,
+                raw_score: att.raw_score,
+                correct: att.raw_score,
+                total_questions: att.total_questions,
+                time_spent_seconds: att.time_spent_seconds || 0,
+                date: new Date(att.completed_at).toLocaleString('vi-VN'),
+                submittedAt: att.completed_at,
+                answers: {},
+              })
+            );
           }
         }
       }
@@ -518,7 +711,9 @@ class SupabaseService {
       let mistakes: any[] = [];
       const rawMistakes = source.mistakes || localSnapshot.mistakes || [];
       const rawMList = Array.isArray(rawMistakes) ? rawMistakes : Object.values(rawMistakes);
-      mistakes = (rawMList as any[]).map(normalizeMistakeItem).filter((m: any): m is MistakeItem => m !== null);
+      mistakes = (rawMList as any[])
+        .map(normalizeMistakeItem)
+        .filter((m: any): m is MistakeItem => m !== null);
 
       const mergedSnapshot: StudentSnapshot = {
         username: userRow.username || username,
@@ -527,8 +722,15 @@ class SupabaseService {
         examHistory,
         mistakes,
         streak: {
-          currentStreak: userRow.streak_days || source.streak?.currentStreak || localSnapshot.streak?.currentStreak || 1,
-          lastStudyDate: source.streak?.lastStudyDate || localSnapshot.streak?.lastStudyDate || new Date().toISOString().split('T')[0],
+          currentStreak:
+            userRow.streak_days ||
+            source.streak?.currentStreak ||
+            localSnapshot.streak?.currentStreak ||
+            1,
+          lastStudyDate:
+            source.streak?.lastStudyDate ||
+            localSnapshot.streak?.lastStudyDate ||
+            new Date().toISOString().split('T')[0],
         },
         updatedAt: source.updatedAt || new Date().toISOString(),
       };
@@ -542,27 +744,50 @@ class SupabaseService {
   }
 
   /**
-   * Sync student state snapshot to Supabase Cloud users.avatar_url
+   * Sync student state snapshot to public.student_snapshots and update last_active_at.
    */
-  public async syncStudentSnapshotToCloud(user: UserSession, snapshot: StudentSnapshot): Promise<boolean> {
+  public async syncStudentSnapshotToCloud(
+    user: UserSession,
+    snapshot: StudentSnapshot
+  ): Promise<boolean> {
     if (!user || user.role === 'admin' || !this.client) return false;
 
     try {
-      const snapshotPayload = {
+      const snapshotPayload: StudentSnapshot = {
+        username: user.username,
         learnedVocab: snapshot.learnedVocab || [],
         unitScores: snapshot.unitScores || {},
         examHistory: (snapshot.examHistory || []).slice(0, 50),
         mistakes: snapshot.mistakes || [],
+        streak: snapshot.streak || {
+          currentStreak: 1,
+          lastStudyDate: new Date().toISOString().split('T')[0],
+        },
         updatedAt: new Date().toISOString(),
       };
+
+      const { error } = await this.client.from('student_snapshots').upsert(
+        {
+          user_id: user.id,
+          username: user.username,
+          snapshot_data: snapshotPayload,
+          updated_at: snapshotPayload.updatedAt,
+        },
+        { onConflict: 'user_id' }
+      );
+
+      if (error) {
+        console.warn('syncStudentSnapshotToCloud error:', error.message);
+        return false;
+      }
 
       await this.client
         .from('users')
         .update({
-          avatar_url: JSON.stringify(snapshotPayload),
-          last_active_at: new Date().toISOString(),
+          last_active_at: snapshotPayload.updatedAt,
+          streak_days: snapshotPayload.streak.currentStreak,
         })
-        .eq('username', user.username);
+        .eq('id', user.id);
 
       return true;
     } catch (e) {

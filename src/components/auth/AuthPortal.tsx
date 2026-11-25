@@ -44,6 +44,8 @@ const STUDENT_PERSONAS: Persona[] = [
 ];
 
 const STORAGE_REMEMBER_KEY = 'ey8_remember_login_v1';
+const IS_DEMO_ADMIN_ENABLED =
+  import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEMO_ADMIN === 'true';
 
 export const AuthPortal: React.FC<AuthPortalProps> = ({ initialMode = 'login' }) => {
   const { login, register } = useAuth();
@@ -106,10 +108,12 @@ export const AuthPortal: React.FC<AuthPortalProps> = ({ initialMode = 'login' })
       setLoginUser('em_lop8');
       setLoginPass('1234');
       setQuickFillNotice('✨ Đã điền tài khoản Học sinh mẫu (em_lop8)');
-    } else {
+    } else if (IS_DEMO_ADMIN_ENABLED) {
       setLoginUser('admin');
       setLoginPass('admin123');
       setQuickFillNotice('🛡️ Đã điền tài khoản Quản trị viên (admin)');
+    } else {
+      return;
     }
     setErrorMsg('');
     if (mode !== 'login') {
@@ -237,8 +241,8 @@ export const AuthPortal: React.FC<AuthPortalProps> = ({ initialMode = 'login' })
       return;
     }
 
-    if (trimmedPass.length < 4) {
-      setErrorMsg('Mật khẩu / Mã PIN phải có ít nhất 4 ký tự!');
+    if (trimmedPass.length < 6) {
+      setErrorMsg('Mật khẩu phải có ít nhất 6 ký tự để đảm bảo an toàn!');
       return;
     }
 
@@ -448,7 +452,7 @@ export const AuthPortal: React.FC<AuthPortalProps> = ({ initialMode = 'login' })
                   </span>
                   <span className="text-[10px] bg-indigo-200/60 px-1.5 py-0.5 rounded text-indigo-800 font-semibold">1-Click</span>
                 </div>
-                <div className="grid grid-cols-2 gap-2">
+                <div className={`grid ${IS_DEMO_ADMIN_ENABLED ? 'grid-cols-2' : 'grid-cols-1'} gap-2`}>
                   <button
                     type="button"
                     onClick={() => handleQuickFill('student')}
@@ -458,15 +462,17 @@ export const AuthPortal: React.FC<AuthPortalProps> = ({ initialMode = 'login' })
                     <span>🎓</span>
                     <span className="truncate">Học sinh mẫu</span>
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => handleQuickFill('admin')}
-                    className="py-1.5 px-2.5 rounded-xl bg-white border border-indigo-200 hover:border-indigo-400 hover:bg-indigo-50/50 text-[11px] font-bold text-slate-700 hover:text-indigo-600 transition-all flex items-center justify-center gap-1.5 shadow-sm active:scale-95 text-left"
-                    title="Đăng nhập tài khoản Quản trị viên (admin / admin123)"
-                  >
-                    <span>🛡️</span>
-                    <span className="truncate">Quản trị viên</span>
-                  </button>
+                  {IS_DEMO_ADMIN_ENABLED && (
+                    <button
+                      type="button"
+                      onClick={() => handleQuickFill('admin')}
+                      className="py-1.5 px-2.5 rounded-xl bg-white border border-indigo-200 hover:border-indigo-400 hover:bg-indigo-50/50 text-[11px] font-bold text-slate-700 hover:text-indigo-600 transition-all flex items-center justify-center gap-1.5 shadow-sm active:scale-95 text-left"
+                      title="Đăng nhập tài khoản Quản trị viên (chỉ bật ở môi trường phát triển)"
+                    >
+                      <span>🛡️</span>
+                      <span className="truncate">Quản trị viên</span>
+                    </button>
+                  )}
                 </div>
               </div>
             )}

@@ -133,4 +133,40 @@ describe('Test Generator & Export Service', () => {
     const foundCustom = paper.mcqQuestions.some(q => q.id === 'cust-1');
     expect(foundCustom).toBe(true);
   });
+
+  it('9. should escape unsafe HTML in Word export while preserving <u> underline tags', () => {
+    const customQ = [
+      {
+        id: 'cust-xss',
+        section: 'Pronunciation',
+        question: 'Choose the word with underlined part <u>ch</u> <script>alert(1)</script>',
+        options: ['A. <u>ch</u>air', 'B. <img src=x onerror=alert(1)>', 'C. s<u>ch</u>ool', 'D. wat<u>ch</u>'],
+        answer: 2,
+        explanation: '<b>bold</b> & explanation',
+        custom: true as const,
+        createdAt: '2026-11-24'
+      }
+    ];
+
+    const paper = generateTestPaper(
+      {
+        ...defaultOptions,
+        schoolName: '<script>evil()</script>THCS A',
+        examTitle: 'Đề "Chính thức" & <Test>',
+        mcqCount: 1,
+        includeWritten: false,
+        shuffleQuestions: false,
+        shuffleOptions: false,
+        unitScope: 'unit-999'
+      },
+      customQ
+    );
+    const html = buildWordDocumentHtml(paper);
+
+    expect(html).not.toContain('<script>evil()</script>');
+    expect(html).not.toContain('<script>alert(1)</script>');
+    expect(html).not.toContain('<img src=x onerror=alert(1)>');
+    expect(html).toContain('&lt;script&gt;evil()&lt;/script&gt;THCS A');
+    expect(html).toContain('<u>ch</u>');
+  });
 });

@@ -209,6 +209,21 @@ CREATE TABLE IF NOT EXISTS attempt_answers (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- 6.5. Snapshot trạng thái học tập chuẩn hóa (thay thế việc lưu JSON vào users.avatar_url)
+CREATE TABLE IF NOT EXISTS student_snapshots (
+    user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    username TEXT NOT NULL UNIQUE,
+    snapshot_data JSONB NOT NULL DEFAULT '{}'::jsonb,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- 6.6. Cấu hình hệ thống (bài tập giao & ngân hàng câu hỏi tùy chỉnh)
+CREATE TABLE IF NOT EXISTS system_config (
+    key TEXT PRIMARY KEY,
+    config_data JSONB NOT NULL DEFAULT '{}'::jsonb,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- ==============================================================================
 -- 7. CHỈ MỤC (INDEXES) TỐI ƯU TỐC ĐỘ TRUY VẤN
 -- ==============================================================================
@@ -224,9 +239,10 @@ CREATE INDEX IF NOT EXISTS idx_progress_user ON study_progress(user_id);
 CREATE INDEX IF NOT EXISTS idx_attempts_user ON quiz_attempts(user_id);
 CREATE INDEX IF NOT EXISTS idx_answers_attempt ON attempt_answers(attempt_id);
 CREATE INDEX IF NOT EXISTS idx_answers_question ON attempt_answers(question_id);
+CREATE INDEX IF NOT EXISTS idx_student_snapshots_username ON student_snapshots(username);
 
 -- ==============================================================================
--- 8. ROW LEVEL SECURITY (RLS) - BẢO MẬT TRÊN SUPABASE
+-- 8. ROW LEVEL SECURITY (RLS) - BẢO MẬT CHẶT CHẼ CHO MÔI TRƯỜNG PUBLIC
 -- ==============================================================================
 ALTER TABLE grades ENABLE ROW LEVEL SECURITY;
 ALTER TABLE subjects ENABLE ROW LEVEL SECURITY;
@@ -240,6 +256,8 @@ ALTER TABLE exercises ENABLE ROW LEVEL SECURITY;
 ALTER TABLE questions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE question_options ENABLE ROW LEVEL SECURITY;
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE student_snapshots ENABLE ROW LEVEL SECURITY;
+ALTER TABLE system_config ENABLE ROW LEVEL SECURITY;
 ALTER TABLE study_progress ENABLE ROW LEVEL SECURITY;
 ALTER TABLE quiz_attempts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE attempt_answers ENABLE ROW LEVEL SECURITY;
@@ -257,8 +275,45 @@ CREATE POLICY "Public Read Exercises" ON exercises FOR SELECT USING (true);
 CREATE POLICY "Public Read Questions" ON questions FOR SELECT USING (true);
 CREATE POLICY "Public Read Question Options" ON question_options FOR SELECT USING (true);
 
--- Cho phép đọc và ghi dữ liệu học tập của học sinh (hỗ trợ cả anon và authenticated)
-CREATE POLICY "Users Read Access" ON users FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Study Progress Full Access" ON study_progress FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Quiz Attempts Full Access" ON quiz_attempts FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Attempt Answers Full Access" ON attempt_answers FOR ALL USING (true) WITH CHECK (true);
+-- Phân quyền chặt chẽ: chỉ người dùng đã xác thực mới truy cập dữ liệu của chính mình,
+-- hoặc quản trị viên được xác thực qua app_metadata.role = 'admin' (không tin user_metadata)
+CREATE POLICY "Users own profile or admin" ON users FOR ALL TO authenticated
+  USING ((SELECT auth.uid()) = id OR (((SELECT auth.jwt()) -> 'app_metadata' ->> 'role') = 'admin'))
+  WITH CHECK ((((SELECT auth.jwt()) -> 'app_metadata' ->> 'role') = 'admin') OR ((SELECT auth.uid()) = id AND role = 'student'));
+
+CREATE POLICY "Snapshots select own or admin" ON student_snapshots FOR SELECT TO authenticated
+  USING ((SELECT auth.uid()) = user_id OR (((SELECT auth.jwt()) -> 'app_metadata' ->> 'role') = 'admin'));
+CREATE POLICY "Snapshots insert own or admin" ON student_snapshots FOR INSERT TO authenticated
+  WITH CHECK ((SELECT auth.uid()) = user_id OR (((SELECT auth.jwt()) -> 'app_metadata' ->> 'role') = 'admin'));
+CREATE POLICY "Snapshots update own or admin" ON student_snapshots FOR UPDATE TO authenticated
+  USING ((SELECT auth.uid()) = user_id OR (((SELECT auth.jwt()) -> 'app_metadata' ->> 'role') = 'admin'))
+  WITH CHECK ((SELECT auth.uid()) = user_id OR (((SELECT auth.jwt()) -> 'app_metadata' ->> 'role') = 'admin'));
+CREATE POLICY "Snapshots delete admin only" ON student_snapshots FOR DELETE TO authenticated
+  USING ((((SELECT auth.jwt()) -> 'app_metadata' ->> 'role') = 'admin'));
+
+CREATE POLICY "System config readable by authenticated users" ON system_config FOR SELECT TO authenticated USING (true);
+CREATE POLICY "System config insert admin only" ON system_config FOR INSERT TO authenticated
+  WITH CHECK ((((SELECT auth.jwt()) -> 'app_metadata' ->> 'role') = 'admin'));
+CREATE POLICY "System config update admin only" ON system_config FOR UPDATE TO authenticated
+  USING ((((SELECT auth.jwt()) -> 'app_metadata' ->> 'role') = 'admin'))
+  WITH CHECK ((((SELECT auth.jwt()) -> 'app_metadata' ->> 'role') = 'admin'));
+CREATE POLICY "System config delete admin only" ON system_config FOR DELETE TO authenticated
+  USING ((((SELECT auth.jwt()) -> 'app_metadata' ->> 'role') = 'admin'));
+
+CREATE POLICY "Study progress own or admin" ON study_progress FOR ALL TO authenticated
+  USING ((SELECT auth.uid()) = user_id OR (((SELECT auth.jwt()) -> 'app_metadata' ->> 'role') = 'admin'))
+  WITH CHECK ((SELECT auth.uid()) = user_id OR (((SELECT auth.jwt()) -> 'app_metadata' ->> 'role') = 'admin'));
+
+CREATE POLICY "Quiz attempts own or admin" ON quiz_attempts FOR ALL TO authenticated
+  USING ((SELECT auth.uid()) = user_id OR (((SELECT auth.jwt()) -> 'app_metadata' ->> 'role') = 'admin'))
+  WITH CHECK ((SELECT auth.uid()) = user_id OR (((SELECT auth.jwt()) -> 'app_metadata' ->> 'role') = 'admin'));
+
+CREATE POLICY "Attempt answers own or admin" ON attempt_answers FOR ALL TO authenticated
+  USING (
+    EXISTS (SELECT 1 FROM quiz_attempts qa WHERE qa.id = attempt_answers.attempt_id AND qa.user_id = (SELECT auth.uid()))
+    OR (((SELECT auth.jwt()) -> 'app_metadata' ->> 'role') = 'admin')
+  )
+  WITH CHECK (
+    EXISTS (SELECT 1 FROM quiz_attempts qa WHERE qa.id = attempt_answers.attempt_id AND qa.user_id = (SELECT auth.uid()))
+    OR (((SELECT auth.jwt()) -> 'app_metadata' ->> 'role') = 'admin')
+  );

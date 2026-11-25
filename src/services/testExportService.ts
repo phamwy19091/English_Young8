@@ -227,9 +227,39 @@ export function generateTestPaper(
 
 /**
  * Generate full HTML suitable for Microsoft Word (.doc) export
+/**
+ * Escape HTML special characters to prevent HTML/XSS injection in exported Word documents
+ */
+export function escapeHtml(input: string): string {
+  return String(input ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+/**
+ * Escape HTML while safely preserving exact <u>...</u> tags used in pronunciation questions
+ */
+function escapeHtmlAllowUnderline(input: string): string {
+  return escapeHtml(input)
+    .replace(/&lt;u&gt;/gi, '<u>')
+    .replace(/&lt;\/u&gt;/gi, '</u>');
+}
+
+/**
+ * Build a complete Word-compatible HTML document
  */
 export function buildWordDocumentHtml(paper: GeneratedTestPaper): string {
   const { options, mcqQuestions, writtenExercises, answerKey } = paper;
+
+  const safeSchoolName = escapeHtml(options.schoolName || 'TRƯỜNG THCS ENGLISH YOUNG 8');
+  const safeAnswerKeySchoolName = escapeHtml(options.schoolName || 'TRƯỜNG THCS TIẾNG ANH 8');
+  const safeExamTitle = escapeHtml(options.examTitle || 'BÀI KIỂM TRA ĐỊNH KỲ TIẾNG ANH 8');
+  const safeExamCode = escapeHtml(options.examCode || '101');
+  const safeSchoolYear = escapeHtml(options.schoolYear || '2026 - 2027');
+  const safeGradeClass = escapeHtml(options.gradeClass || '8A...');
 
   const totalQuestions = mcqQuestions.length + writtenExercises.length;
 
@@ -274,13 +304,13 @@ export function buildWordDocumentHtml(paper: GeneratedTestPaper): string {
         passageHtml = `
           <div style="background:#f4f4f4; border-left:3px solid #333; padding:8px 12px; margin:8px 0; font-style:italic; font-size:11pt;">
             <strong>Read the passage and choose the best answer:</strong><br/>
-            ${q.passage.replace(/\n/g, '<br/>')}
+            ${escapeHtmlAllowUnderline(q.passage).replace(/\n/g, '<br/>')}
           </div>
         `;
       }
 
       const optionsHtml = q.options
-        .map(opt => `<td style="padding:4px 8px; width:50%; vertical-align:top; font-size:11.5pt;">${opt}</td>`)
+        .map(opt => `<td style="padding:4px 8px; width:50%; vertical-align:top; font-size:11.5pt;">${escapeHtmlAllowUnderline(opt)}</td>`)
         .reduce((rows, cell, idx) => {
           if (idx % 2 === 0) rows.push(`<tr>${cell}`);
           else rows[rows.length - 1] += `${cell}</tr>`;
@@ -292,7 +322,7 @@ export function buildWordDocumentHtml(paper: GeneratedTestPaper): string {
         <div style="margin-bottom:14px; page-break-inside:avoid;">
           ${passageHtml}
           <div style="font-size:11.5pt; font-weight:bold; margin-bottom:4px;">
-            Câu ${q.displayIndex}. <span style="font-weight:normal;">${q.question}</span>
+            Câu ${q.displayIndex}. <span style="font-weight:normal;">${escapeHtmlAllowUnderline(q.question)}</span>
           </div>
           <table style="width:100%; border-collapse:collapse; margin-left:12px;">
             ${optionsHtml}
@@ -307,11 +337,11 @@ export function buildWordDocumentHtml(paper: GeneratedTestPaper): string {
   if (writtenExercises.length > 0) {
     const exercisesHtml = writtenExercises
       .map(w => {
-        const rootWordBadge = w.rootWord ? `<strong>(${w.rootWord})</strong>: ` : '';
+        const rootWordBadge = w.rootWord ? `<strong>(${escapeHtml(w.rootWord)})</strong>: ` : '';
         return `
           <div style="margin-bottom:14px; page-break-inside:avoid; font-size:11.5pt;">
             <div style="margin-bottom:4px;">
-              <strong>Câu ${w.displayIndex}.</strong> ${rootWordBadge}${w.prompt}
+              <strong>Câu ${w.displayIndex}.</strong> ${rootWordBadge}${escapeHtmlAllowUnderline(w.prompt)}
             </div>
             <div style="border-bottom:1px dashed #666; height:24px; margin-left:15px; width:95%;"></div>
           </div>
@@ -334,13 +364,13 @@ export function buildWordDocumentHtml(paper: GeneratedTestPaper): string {
   if (options.includeAnswerKey) {
     const answerTableRows = answerKey
       .map(ak => {
-        const expl = options.includeExplanations && ak.explanation ? `<div style="font-size:10pt; color:#555; margin-top:2px;"><em>${ak.explanation}</em></div>` : '';
+        const expl = options.includeExplanations && ak.explanation ? `<div style="font-size:10pt; color:#555; margin-top:2px;"><em>${escapeHtml(ak.explanation)}</em></div>` : '';
         return `
           <tr>
             <td style="border:1px solid #333; text-align:center; font-weight:bold; width:50px; font-size:11pt; padding:6px;">Câu ${ak.index}</td>
-            <td style="border:1px solid #333; text-align:center; font-weight:black; font-size:12pt; width:60px; color:#002060; padding:6px;">${ak.answerLetter || '-'}</td>
+            <td style="border:1px solid #333; text-align:center; font-weight:black; font-size:12pt; width:60px; color:#002060; padding:6px;">${escapeHtml(ak.answerLetter || '-')}</td>
             <td style="border:1px solid #333; font-size:11pt; padding:6px;">
-              <strong>${ak.answerText}</strong>
+              <strong>${escapeHtmlAllowUnderline(ak.answerText)}</strong>
               ${expl}
             </td>
           </tr>
@@ -353,13 +383,13 @@ export function buildWordDocumentHtml(paper: GeneratedTestPaper): string {
         <table style="width:100%; border-collapse:collapse; margin-bottom:15px;">
           <tr>
             <td style="width:40%; text-align:center; font-size:11pt; vertical-align:top;">
-              <strong>${options.schoolName || 'TRƯỜNG THCS TIẾNG ANH 8'}</strong><br/>
+              <strong>${safeAnswerKeySchoolName}</strong><br/>
               <strong>TỔ CHUYÊN MÔN TIẾNG ANH</strong>
             </td>
             <td style="width:60%; text-align:center; font-size:11pt; vertical-align:top;">
               <strong style="font-size:12pt; text-transform:uppercase;">HƯỚNG DẪN CHẤM & ĐÁP ÁN CHI TIẾT</strong><br/>
-              <strong>${options.examTitle}</strong><br/>
-              <em>MÃ ĐỀ THI: ${options.examCode || '101'}</em>
+              <strong>${safeExamTitle}</strong><br/>
+              <em>MÃ ĐỀ THI: ${safeExamCode}</em>
             </td>
           </tr>
         </table>
@@ -388,7 +418,7 @@ export function buildWordDocumentHtml(paper: GeneratedTestPaper): string {
     <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
     <head>
       <meta charset='utf-8'>
-      <title>${options.examTitle} - Mã đề ${options.examCode}</title>
+      <title>${safeExamTitle} - Mã đề ${safeExamCode}</title>
       <style>
         @page {
           size: 21.0cm 29.7cm;
@@ -413,16 +443,16 @@ export function buildWordDocumentHtml(paper: GeneratedTestPaper): string {
         <tr>
           <td style="width:45%; text-align:center; font-size:11pt; vertical-align:top; line-height:1.4;">
             <span style="font-size:10.5pt; text-transform:uppercase;">PHÒNG GD&ĐT HUYỆN/QUẬN</span><br/>
-            <strong style="text-transform:uppercase; font-size:11pt;">${options.schoolName || 'TRƯỜNG THCS ENGLISH YOUNG 8'}</strong><br/>
-            <span style="font-size:10.5pt;">NĂM HỌC ${options.schoolYear || '2026 - 2027'}</span><br/>
+            <strong style="text-transform:uppercase; font-size:11pt;">${safeSchoolName}</strong><br/>
+            <span style="font-size:10.5pt;">NĂM HỌC ${safeSchoolYear}</span><br/>
             <div style="border-bottom:1px solid #000; width:80px; margin:4px auto;"></div>
           </td>
           <td style="width:55%; text-align:center; font-size:11pt; vertical-align:top; line-height:1.4;">
-            <strong style="text-transform:uppercase; font-size:12pt;">${options.examTitle || 'BÀI KIỂM TRA ĐỊNH KỲ TIẾNG ANH 8'}</strong><br/>
+            <strong style="text-transform:uppercase; font-size:12pt;">${safeExamTitle}</strong><br/>
             <span>Môn: <strong>TIẾNG ANH 8 (GLOBAL SUCCESS)</strong></span><br/>
             <span>Thời gian làm bài: <strong>${options.durationMinutes} phút</strong> <em>(Không kể thời gian phát đề)</em></span><br/>
             <div style="margin-top:4px; font-weight:bold; font-size:11pt; border:1px solid #000; display:inline-block; padding:2px 10px;">
-              MÃ ĐỀ THI: ${options.examCode || '101'}
+              MÃ ĐỀ THI: ${safeExamCode}
             </div>
           </td>
         </tr>
@@ -432,7 +462,7 @@ export function buildWordDocumentHtml(paper: GeneratedTestPaper): string {
       <table style="width:100%; border-collapse:collapse; margin-bottom:15px; border:1px solid #000;">
         <tr>
           <td style="width:65%; padding:8px 12px; font-size:11pt; vertical-align:middle; line-height:1.8;">
-            Họ và tên thí sinh: ............................................................................ Lớp: <strong>${options.gradeClass || '8A...'}</strong><br/>
+            Họ và tên thí sinh: ............................................................................ Lớp: <strong>${safeGradeClass}</strong><br/>
             Số báo danh: ........................................... Phòng thi số: ....................................
           </td>
           <td style="width:35%; border-left:1px solid #000; text-align:center; font-size:10pt; padding:6px; vertical-align:top;">

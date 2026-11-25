@@ -682,9 +682,10 @@ describe('Tier 5 Adversarial Coverage Hardening — Challenger 1', () => {
       (supabaseService as any).client = mockClient;
     });
 
-    it('4.1 should initialize with default project configuration', () => {
-      expect(DEFAULT_SUPABASE_CONFIG.URL).toContain('supabase.co');
-      expect(DEFAULT_SUPABASE_CONFIG.ANON_KEY).toBeDefined();
+    it('4.1 should initialize Supabase config from environment variables without hardcoded secrets', () => {
+      expect(typeof DEFAULT_SUPABASE_CONFIG.URL).toBe('string');
+      expect(typeof DEFAULT_SUPABASE_CONFIG.ANON_KEY).toBe('string');
+      expect(DEFAULT_SUPABASE_CONFIG.ANON_KEY).not.toContain('iiltwryccctzjbfddjcw');
     });
 
     it('4.2 updateCredentials updates storage and client', () => {

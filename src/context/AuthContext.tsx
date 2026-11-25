@@ -26,6 +26,37 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     return getAuthSession();
   });
 
+  // When Supabase Cloud is configured, verify the real server-side JWT session on mount
+  // so tampered localStorage sessions (e.g. forged role='admin') cannot bypass auth.
+  useEffect(() => {
+    if (!supabaseService.isConfigured()) return;
+
+    let isMounted = true;
+    supabaseService.getVerifiedSession().then(verifiedUser => {
+      if (!isMounted) return;
+      if (verifiedUser) {
+        setUser(verifiedUser);
+        saveAuthSession(verifiedUser);
+      } else {
+        clearAuthSession();
+        setUser(null);
+      }
+    });
+
+    const client = supabaseService.getClient();
+    const subscription = client?.auth.onAuthStateChange((event) => {
+      if (event === 'SIGNED_OUT') {
+        clearAuthSession();
+        setUser(null);
+      }
+    });
+
+    return () => {
+      isMounted = false;
+      subscription?.data?.subscription?.unsubscribe();
+    };
+  }, []);
+
   useEffect(() => {
     if (user) {
       saveAuthSession(user);
@@ -35,6 +66,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   }, [user]);
 
   const switchUser = (username: string, role: 'student' | 'admin' = 'student', fullName?: string) => {
+    // Disallow arbitrary client-side role switching when connected to Supabase Cloud
+    if (supabaseService.isConfigured()) {
+      console.warn('switchUser is disabled when Supabase Auth is active.');
+      return;
+    }
     const newUser: UserSession = {
       id: `usr_${username}`,
       username,
@@ -79,6 +115,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const logout = () => {
+    void supabaseService.logout();
     clearAuthSession();
     setUser(null);
     window.location.hash = '#/login';
