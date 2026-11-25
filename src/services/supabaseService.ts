@@ -58,14 +58,37 @@ function extractTrustedRole(authUser: SupabaseAuthUser): 'student' | 'admin' {
   return authUser.app_metadata?.role === 'admin' ? 'admin' : 'student';
 }
 
+/**
+ * Detects forbidden secret/service_role keys that must NEVER be used in a browser.
+ */
+function isForbiddenBrowserKey(key: string): boolean {
+  const trimmed = (key || '').trim();
+  if (!trimmed) return false;
+  if (trimmed.startsWith('sb_secret_')) return true;
+  // Detect legacy JWT service_role key
+  if (trimmed.startsWith('eyJ')) {
+    try {
+      const payloadPart = trimmed.split('.')[1];
+      if (payloadPart && typeof atob === 'function') {
+        const decoded = JSON.parse(atob(payloadPart.replace(/-/g, '+').replace(/_/g, '/')));
+        if (decoded?.role === 'service_role') return true;
+      }
+    } catch {
+      // Ignore malformed JWT
+    }
+  }
+  return false;
+}
+
 class SupabaseService {
   private client: SupabaseClient | null = null;
   private url: string;
   private anonKey: string;
 
   constructor() {
-    this.url = this.getStoredUrl() || DEFAULT_SUPABASE_CONFIG.URL;
-    this.anonKey = this.getStoredAnonKey() || DEFAULT_SUPABASE_CONFIG.ANON_KEY;
+    // Always prioritize build-time environment variables (Vercel / .env.local) over stale localStorage
+    this.url = DEFAULT_SUPABASE_CONFIG.URL || this.getStoredUrl() || '';
+    this.anonKey = DEFAULT_SUPABASE_CONFIG.ANON_KEY || this.getStoredAnonKey() || '';
     this.initClient();
   }
 
@@ -76,11 +99,17 @@ class SupabaseService {
 
   private getStoredAnonKey(): string | null {
     if (typeof window === 'undefined') return null;
-    return window.localStorage.getItem(STORAGE_KEYS.SUPABASE_ANON);
+    const stored = window.localStorage.getItem(STORAGE_KEYS.SUPABASE_ANON);
+    if (stored && isForbiddenBrowserKey(stored)) {
+      // Auto-purge forbidden secret key from browser storage
+      window.localStorage.removeItem(STORAGE_KEYS.SUPABASE_ANON);
+      return null;
+    }
+    return stored;
   }
 
   private initClient(): void {
-    if (this.url && this.anonKey) {
+    if (this.url && this.anonKey && !isForbiddenBrowserKey(this.anonKey)) {
       try {
         this.client = createClient(this.url, this.anonKey, {
           auth: {
@@ -103,8 +132,14 @@ class SupabaseService {
   }
 
   public updateCredentials(url: string, anonKey: string): void {
-    this.url = url.trim();
-    this.anonKey = anonKey.trim();
+    const cleanUrl = url.trim();
+    const cleanKey = anonKey.trim();
+    if (isForbiddenBrowserKey(cleanKey)) {
+      console.warn('Blocked attempt to store a secret/service_role API key in the browser.');
+      return;
+    }
+    this.url = cleanUrl;
+    this.anonKey = cleanKey;
     if (typeof window !== 'undefined') {
       window.localStorage.setItem(STORAGE_KEYS.SUPABASE_URL, this.url);
       window.localStorage.setItem(STORAGE_KEYS.SUPABASE_ANON, this.anonKey);
