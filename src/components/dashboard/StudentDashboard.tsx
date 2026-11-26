@@ -1,8 +1,12 @@
 import React, { useState } from 'react';
 import { unitsData } from '../../data/units';
+import { mathChaptersData } from '../../data/math/mathChapters';
+import { scienceTopicsData } from '../../data/science/scienceTopics';
+import { SUBJECTS_REGISTRY } from '../../data/subjects';
 import { useAuth } from '../../context/AuthContext';
 import { useStudy } from '../../context/StudyContext';
 import { useMistakes } from '../../context/MistakeContext';
+import { useSubject } from '../../context/SubjectContext';
 import { getSystemConfig } from '../../services/storageService';
 import {
   BookOpen,
@@ -13,14 +17,26 @@ import {
   Sparkles,
   ChevronRight,
   ArrowRight,
-  Calendar
+  Calendar,
+  Calculator,
+  FlaskConical,
+  Atom,
+  Dna,
 } from 'lucide-react';
 
 export const StudentDashboard: React.FC = () => {
   const { user } = useAuth();
-  const { streakDays, totalLearnedVocabCount, unitScores, examHistory } = useStudy();
-  const { unresolvedCount } = useMistakes();
+  const { streakDays, totalLearnedVocabCount, unitScores, subjectProgress, examHistory } = useStudy();
+  const { mistakes, unresolvedCount } = useMistakes();
+  const { activeSubjectId, setActiveSubject } = useSubject();
   const [semesterFilter, setSemesterFilter] = useState<'all' | 1 | 2>('all');
+
+  const mathChapterScores = subjectProgress.math?.chapterScores || {};
+  const scienceTopicScores = subjectProgress.science?.chapterScores || {};
+  const mathExamsCount = examHistory.filter(e => e.subjectId === 'math').length;
+  const scienceExamsCount = examHistory.filter(e => e.subjectId === 'science').length;
+  const mathMistakesCount = mistakes.filter(m => !m.resolved && m.subjectId === 'math').length;
+  const scienceMistakesCount = mistakes.filter(m => !m.resolved && m.subjectId === 'science').length;
 
   const totalVocab = unitsData.reduce((acc, u) => acc + u.vocab.length, 0);
 
@@ -49,6 +65,295 @@ export const StudentDashboard: React.FC = () => {
 
   return (
     <div className="dashboard-view max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full space-y-8">
+      {/* Multi-Subject Selector Strip */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        {SUBJECTS_REGISTRY.map(sub => {
+          const isSelected = activeSubjectId === sub.id;
+          const activeStyles =
+            sub.id === 'math'
+              ? 'border-blue-500 bg-blue-50/70 ring-1 ring-blue-200'
+              : sub.id === 'science'
+              ? 'border-emerald-500 bg-emerald-50/70 ring-1 ring-emerald-200'
+              : 'border-indigo-500 bg-indigo-50/70 ring-1 ring-indigo-200';
+
+          return (
+            <button
+              key={sub.id}
+              type="button"
+              onClick={() => setActiveSubject(sub.id)}
+              className={`text-left p-4 rounded-2xl border transition-all flex items-center gap-3.5 ${
+                isSelected
+                  ? `${activeStyles} shadow-xs`
+                  : 'border-slate-200 bg-white hover:border-slate-300'
+              }`}
+            >
+              <div
+                className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                  sub.id === 'math'
+                    ? 'bg-blue-100 text-blue-700'
+                    : sub.id === 'science'
+                    ? 'bg-emerald-100 text-emerald-700'
+                    : 'bg-indigo-100 text-indigo-700'
+                }`}
+              >
+                {sub.id === 'math' ? (
+                  <Calculator className="w-5 h-5" />
+                ) : sub.id === 'science' ? (
+                  <FlaskConical className="w-5 h-5" />
+                ) : (
+                  <BookOpen className="w-5 h-5" />
+                )}
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-black text-slate-900">{sub.name}</span>
+                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-white/80 border border-slate-200 text-slate-600">
+                    {sub.badge}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500 truncate mt-0.5">{sub.subtitle}</p>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* MATH 8 DEDICATED DASHBOARD */}
+      {activeSubjectId === 'math' && (
+        <div className="space-y-8">
+          <div className="bg-gradient-to-r from-blue-900 via-blue-950 to-slate-900 text-white rounded-3xl p-6 sm:p-10 shadow-xl border border-blue-800/50 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+            <div className="space-y-3 max-w-2xl">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-800/80 text-blue-100 text-xs font-semibold border border-blue-700/60">
+                <Calculator className="w-3.5 h-3.5 text-amber-300" />
+                <span>Toán 8 • Kết nối tri thức với cuộc sống</span>
+              </div>
+              <h2 className="text-2xl sm:text-4xl font-black tracking-tight leading-tight">
+                Chào {user?.fullName || user?.username || 'Học sinh'}, cùng chinh phục Toán 8! 📐
+              </h2>
+              <p className="text-xs sm:text-sm text-blue-100/90 leading-relaxed">
+                Ôn chắc Sổ tay Công thức &amp; Định lý, giải bài trắc nghiệm từng bước, tự luận điền đáp số ngắn và thi thử bấm giờ theo đúng cấu trúc Toán 8.
+              </p>
+            </div>
+            <div className="bg-white/10 backdrop-blur-md rounded-2xl p-5 border border-white/10 flex items-center gap-4 shrink-0">
+              <div className="w-12 h-12 rounded-2xl bg-amber-500/20 text-amber-400 flex items-center justify-center border border-amber-400/30">
+                <Flame className="w-7 h-7 fill-amber-400" />
+              </div>
+              <div>
+                <div className="text-2xl font-black text-amber-300">{streakDays} Ngày</div>
+                <div className="text-xs text-blue-200 font-medium">Chuỗi học tập</div>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="bg-white p-5 rounded-2xl border border-slate-200/80 flex items-center gap-4">
+              <div className="p-3 rounded-xl bg-blue-50 text-blue-600">
+                <CheckCircle2 className="w-6 h-6" />
+              </div>
+              <div>
+                <div className="text-2xl font-black text-slate-900">
+                  {Object.keys(mathChapterScores).length}/{mathChaptersData.length}
+                </div>
+                <div className="text-xs text-slate-500 font-medium">Chương đã luyện tập</div>
+              </div>
+            </div>
+            <div className="bg-white p-5 rounded-2xl border border-slate-200/80 flex items-center gap-4">
+              <div className="p-3 rounded-xl bg-sky-50 text-sky-600">
+                <GraduationCap className="w-6 h-6" />
+              </div>
+              <div>
+                <div className="text-2xl font-black text-slate-900">{mathExamsCount}</div>
+                <div className="text-xs text-slate-500 font-medium">Lượt thi Toán 8</div>
+              </div>
+            </div>
+            <a
+              href="#/mistakes"
+              className="bg-white p-5 rounded-2xl border border-slate-200/80 flex items-center gap-4 hover:border-rose-200 transition-colors"
+            >
+              <div className="p-3 rounded-xl bg-rose-50 text-rose-600">
+                <AlertCircle className="w-6 h-6" />
+              </div>
+              <div>
+                <div className="text-2xl font-black text-rose-600">{mathMistakesCount}</div>
+                <div className="text-xs text-slate-500 font-medium">Câu Toán sai cần gỡ</div>
+              </div>
+            </a>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+            {mathChaptersData.map(ch => {
+              const best = mathChapterScores[ch.id];
+              return (
+                <div
+                  key={ch.id}
+                  className="bg-white rounded-2xl border border-slate-200 p-6 flex flex-col justify-between hover:shadow-md transition-shadow"
+                >
+                  <div>
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="text-xs font-bold px-2.5 py-1 rounded-lg bg-blue-50 text-blue-700">
+                        Chương {ch.number} • HK{ch.semester}
+                      </span>
+                      {typeof best === 'number' && (
+                        <span className="text-xs font-black px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                          {best}/10
+                        </span>
+                      )}
+                    </div>
+                    <h4 className="text-base font-bold text-slate-900 mb-1.5">{ch.title}</h4>
+                    <p className="text-xs text-slate-500 mb-4 leading-relaxed">{ch.summary}</p>
+                    <div className="bg-slate-50 rounded-xl p-3 text-xs space-y-1.5 mb-4 border border-slate-100">
+                      <div className="flex justify-between text-slate-600">
+                        <span>Công thức &amp; Định lý:</span>
+                        <strong className="text-slate-900">{ch.formulas.length} mục</strong>
+                      </div>
+                      <div className="flex justify-between text-slate-600">
+                        <span>Trắc nghiệm + Điền đáp số:</span>
+                        <strong className="text-slate-900">
+                          {ch.quiz.length + ch.shortAnswers.length} bài
+                        </strong>
+                      </div>
+                    </div>
+                  </div>
+                  <a
+                    href={`#/math/${ch.id}`}
+                    className="w-full py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold text-center transition-colors"
+                  >
+                    Học &amp; Luyện Chương {ch.number}
+                  </a>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* SCIENCE 8 DEDICATED DASHBOARD */}
+      {activeSubjectId === 'science' && (
+        <div className="space-y-8">
+          <div className="bg-gradient-to-r from-emerald-900 via-teal-950 to-slate-900 text-white rounded-3xl p-6 sm:p-10 shadow-xl border border-emerald-800/50 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+            <div className="space-y-3 max-w-2xl">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-800/80 text-emerald-100 text-xs font-semibold border border-emerald-700/60">
+                <FlaskConical className="w-3.5 h-3.5 text-amber-300" />
+                <span>Khoa học tự nhiên 8 • Kết nối tri thức</span>
+              </div>
+              <h2 className="text-2xl sm:text-4xl font-black tracking-tight leading-tight">
+                Khám phá Hóa học, Vật lí &amp; Sinh học cùng {user?.fullName || user?.username || 'em'}! 🔬
+              </h2>
+              <p className="text-xs sm:text-sm text-emerald-100/90 leading-relaxed">
+                Hệ thống kiến thức theo từng phân môn Hóa – Lí – Sinh, kèm bảng tra cứu nguyên tố/công thức nhanh, trắc nghiệm thí nghiệm và đề thi tích hợp.
+              </p>
+            </div>
+            <div className="bg-white/10 backdrop-blur-md rounded-2xl p-5 border border-white/10 flex items-center gap-4 shrink-0">
+              <div className="w-12 h-12 rounded-2xl bg-amber-500/20 text-amber-400 flex items-center justify-center border border-amber-400/30">
+                <Flame className="w-7 h-7 fill-amber-400" />
+              </div>
+              <div>
+                <div className="text-2xl font-black text-amber-300">{streakDays} Ngày</div>
+                <div className="text-xs text-emerald-200 font-medium">Chuỗi học tập</div>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="bg-white p-5 rounded-2xl border border-slate-200/80 flex items-center gap-4">
+              <div className="p-3 rounded-xl bg-emerald-50 text-emerald-600">
+                <CheckCircle2 className="w-6 h-6" />
+              </div>
+              <div>
+                <div className="text-2xl font-black text-slate-900">
+                  {Object.keys(scienceTopicScores).length}/{scienceTopicsData.length}
+                </div>
+                <div className="text-xs text-slate-500 font-medium">Chủ đề đã luyện tập</div>
+              </div>
+            </div>
+            <div className="bg-white p-5 rounded-2xl border border-slate-200/80 flex items-center gap-4">
+              <div className="p-3 rounded-xl bg-teal-50 text-teal-600">
+                <GraduationCap className="w-6 h-6" />
+              </div>
+              <div>
+                <div className="text-2xl font-black text-slate-900">{scienceExamsCount}</div>
+                <div className="text-xs text-slate-500 font-medium">Lượt thi KHTN 8</div>
+              </div>
+            </div>
+            <a
+              href="#/mistakes"
+              className="bg-white p-5 rounded-2xl border border-slate-200/80 flex items-center gap-4 hover:border-rose-200 transition-colors"
+            >
+              <div className="p-3 rounded-xl bg-rose-50 text-rose-600">
+                <AlertCircle className="w-6 h-6" />
+              </div>
+              <div>
+                <div className="text-2xl font-black text-rose-600">{scienceMistakesCount}</div>
+                <div className="text-xs text-slate-500 font-medium">Câu KHTN sai cần gỡ</div>
+              </div>
+            </a>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+            {scienceTopicsData.map(topic => {
+              const best = scienceTopicScores[topic.id];
+              const isChem = topic.branch === 'chemistry';
+              const isPhys = topic.branch === 'physics';
+              return (
+                <div
+                  key={topic.id}
+                  className="bg-white rounded-2xl border border-slate-200 p-6 flex flex-col justify-between hover:shadow-md transition-shadow"
+                >
+                  <div>
+                    <div className="flex items-center justify-between mb-3">
+                      <span
+                        className={`inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1 rounded-lg ${
+                          isChem
+                            ? 'bg-emerald-50 text-emerald-700'
+                            : isPhys
+                            ? 'bg-sky-50 text-sky-700'
+                            : 'bg-lime-50 text-lime-800'
+                        }`}
+                      >
+                        {isChem ? (
+                          <FlaskConical className="w-3.5 h-3.5" />
+                        ) : isPhys ? (
+                          <Atom className="w-3.5 h-3.5" />
+                        ) : (
+                          <Dna className="w-3.5 h-3.5" />
+                        )}
+                        {isChem ? 'Hóa học' : isPhys ? 'Vật lí' : 'Sinh học'}
+                      </span>
+                      {typeof best === 'number' && (
+                        <span className="text-xs font-black px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                          {best}/10
+                        </span>
+                      )}
+                    </div>
+                    <h4 className="text-base font-bold text-slate-900 mb-1.5">{topic.title}</h4>
+                    <p className="text-xs text-slate-500 mb-4 leading-relaxed">{topic.summary}</p>
+                    <div className="bg-slate-50 rounded-xl p-3 text-xs space-y-1.5 mb-4 border border-slate-100">
+                      <div className="flex justify-between text-slate-600">
+                        <span>Trọng tâm &amp; Thí nghiệm:</span>
+                        <strong className="text-slate-900">{topic.concepts.length} phần</strong>
+                      </div>
+                      <div className="flex justify-between text-slate-600">
+                        <span>Câu hỏi luyện tập:</span>
+                        <strong className="text-slate-900">{topic.quiz.length} câu</strong>
+                      </div>
+                    </div>
+                  </div>
+                  <a
+                    href={`#/science/${topic.id}`}
+                    className="w-full py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold text-center transition-colors"
+                  >
+                    Học chủ đề này
+                  </a>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ENGLISH 8 DASHBOARD (Preserved Intact) */}
+      {activeSubjectId === 'english' && (
+        <>
       {/* Welcome Hero Banner */}
       <div className="bg-gradient-to-r from-indigo-900 via-indigo-950 to-slate-900 text-white rounded-3xl p-6 sm:p-10 shadow-xl border border-indigo-800/50 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
         <div className="space-y-3 max-w-2xl">
@@ -311,6 +616,8 @@ export const StudentDashboard: React.FC = () => {
           })}
         </div>
       </div>
+        </>
+      )}
     </div>
   );
 };

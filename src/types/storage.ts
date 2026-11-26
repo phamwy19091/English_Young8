@@ -1,7 +1,9 @@
 import { UnitQuestion } from './curriculum';
+import type { SubjectId } from './subject';
 
 export interface ExamAttempt {
   id: string;
+  subjectId?: SubjectId;
   examId: string;
   examTitle: string;
   score: number;
@@ -13,6 +15,7 @@ export interface ExamAttempt {
 
 export interface MistakeItem {
   id: string;
+  subjectId?: SubjectId;
   sourceType: 'unit' | 'exam';
   sourceId: string | number;
   questionId: string;
@@ -24,10 +27,16 @@ export interface MistakeItem {
   resolvedAt?: string;
 }
 
+export interface SubjectProgressEntry {
+  chapterScores: Record<string, number>;
+  completedTopics: string[];
+}
+
 export interface StudentSnapshot {
   username: string;
   learnedVocab: string[]; // vocabulary IDs
   unitScores: Record<number, number>; // unitId -> best score
+  subjectProgress?: Record<string, SubjectProgressEntry>;
   examHistory: ExamAttempt[];
   mistakes: MistakeItem[];
   streak: {

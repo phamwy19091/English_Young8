@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import { useMistakes } from '../../context/MistakeContext';
+import { useSubject } from '../../context/SubjectContext';
 import { useToast } from '../common/Toast';
 import { MistakeItem } from '../../types/storage';
+import { SubjectId } from '../../types/subject';
 import {
   AlertCircle,
   CheckCircle2,
@@ -27,7 +29,12 @@ export const MistakesNotebook: React.FC<MistakesNotebookProps> = ({ onStartCusto
     generateBatchQuiz
   } = useMistakes();
   const { showToast } = useToast();
+  const { activeSubjectId } = useSubject();
 
+  const [filterSubject, setFilterSubject] = useState<'all' | SubjectId>(() => {
+    const hasForActive = mistakes.some(m => (m.subjectId || 'english') === activeSubjectId);
+    return hasForActive || mistakes.length === 0 ? activeSubjectId : 'all';
+  });
   const [filterType, setFilterType] = useState<'all' | 'unit' | 'exam'>('all');
   const [filterStatus, setFilterStatus] = useState<'unresolved' | 'resolved' | 'all'>('unresolved');
   const [search, setSearch] = useState<string>('');
@@ -37,6 +44,8 @@ export const MistakesNotebook: React.FC<MistakesNotebookProps> = ({ onStartCusto
 
   const filteredMistakes = mistakes.filter(m => {
     if (!m) return false;
+    const itemSubject: SubjectId = m.subjectId || 'english';
+    if (filterSubject !== 'all' && itemSubject !== filterSubject) return false;
     if (filterType !== 'all' && m.sourceType !== filterType) return false;
     if (filterStatus === 'unresolved' && m.resolved) return false;
     if (filterStatus === 'resolved' && !m.resolved) return false;
@@ -132,8 +141,32 @@ export const MistakesNotebook: React.FC<MistakesNotebookProps> = ({ onStartCusto
           </div>
         </div>
 
+        {/* Subject filter bar */}
+        <div className="mt-6 pt-5 border-t border-slate-100 flex flex-wrap items-center gap-2">
+          <span className="text-xs font-bold text-slate-500 mr-1">Môn học:</span>
+          {([
+            { id: 'all', label: 'Tất cả môn' },
+            { id: 'english', label: '🇬🇧 Tiếng Anh 8' },
+            { id: 'math', label: '📐 Toán 8' },
+            { id: 'science', label: '🔬 KHTN 8' },
+          ] as const).map(tab => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setFilterSubject(tab.id)}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-colors ${
+                filterSubject === tab.id
+                  ? 'bg-slate-900 text-white'
+                  : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
         {/* Filter and search bar */}
-        <div className="mt-6 pt-6 border-t border-slate-100 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4">
+        <div className="mt-4 pt-4 border-t border-slate-100 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4">
           <div className="flex flex-wrap items-center gap-1.5 p-1 bg-slate-100 rounded-xl">
             <button
               onClick={() => setFilterType('all')}
@@ -258,9 +291,27 @@ export const MistakesNotebook: React.FC<MistakesNotebookProps> = ({ onStartCusto
               >
                 {/* Card Header */}
                 <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {(() => {
+                      const itemSubject: SubjectId = m.subjectId || 'english';
+                      const subjectBadge =
+                        itemSubject === 'math'
+                          ? { label: 'Toán 8', cls: 'bg-blue-50 text-blue-700 border-blue-200' }
+                          : itemSubject === 'science'
+                          ? { label: 'KHTN 8', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' }
+                          : { label: 'Tiếng Anh 8', cls: 'bg-indigo-50 text-indigo-700 border-indigo-200' };
+                      return (
+                        <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${subjectBadge.cls}`}>
+                          {subjectBadge.label}
+                        </span>
+                      );
+                    })()}
                     <span className="px-2.5 py-0.5 rounded-md text-[10px] font-black uppercase bg-slate-100 text-slate-600">
-                      {m.sourceType === 'unit' ? `Unit ${m.sourceId}` : `Đề thi: ${m.sourceId || (m as any).source}`}
+                      {m.sourceType === 'unit'
+                        ? String(m.sourceId).startsWith('math') || String(m.sourceId).startsWith('sci')
+                          ? `Bài ${m.sourceId}`
+                          : `Unit ${m.sourceId}`
+                        : `Đề thi: ${m.sourceId || (m as any).source}`}
                     </span>
                     <span className="text-xs text-slate-400 font-medium">
                       {(m.addedAt || (m as any).savedAt || '')?.split('T')[0]}

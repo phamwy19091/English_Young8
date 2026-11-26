@@ -1,5 +1,6 @@
 import React, { useState, useEffect, Suspense, lazy } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { SubjectProvider } from './context/SubjectContext';
 import { StudyProvider, useStudy } from './context/StudyContext';
 import { MistakeProvider } from './context/MistakeContext';
 import { ToastProvider } from './components/common/Toast';
@@ -9,9 +10,17 @@ import { StudentDashboard } from './components/dashboard/StudentDashboard';
 import { AuthPortal } from './components/auth/AuthPortal';
 import { ExamData } from './types/curriculum';
 import { examsData } from './data/exams';
+import { mathExamsData } from './data/math/mathExams';
+import { scienceExamsData } from './data/science/scienceExams';
 
 const UnitPractice = lazy(() =>
   import('./components/practice/UnitPractice').then(m => ({ default: m.UnitPractice }))
+);
+const MathPractice = lazy(() =>
+  import('./components/math/MathPractice').then(m => ({ default: m.MathPractice }))
+);
+const SciencePractice = lazy(() =>
+  import('./components/science/SciencePractice').then(m => ({ default: m.SciencePractice }))
 );
 const ExamList = lazy(() =>
   import('./components/exam/ExamList').then(m => ({ default: m.ExamList }))
@@ -91,7 +100,8 @@ const AppContent: React.FC = () => {
       if (!examToRun) {
         const parts = hash.split('exams/room/');
         const examId = parts[1];
-        examToRun = examsData.find(e => e.id === examId) || examsData[0];
+        const allExams = [...examsData, ...mathExamsData, ...scienceExamsData];
+        examToRun = allExams.find(e => e.id === examId) || examsData[0];
       }
 
       return (
@@ -103,6 +113,18 @@ const AppContent: React.FC = () => {
           }}
         />
       );
+    }
+
+    if (hash.includes('math')) {
+      const match = hash.match(/math\/([a-z0-9_-]+)/i);
+      const chapterId = match && match[1] ? match[1] : undefined;
+      return <MathPractice initialChapterId={chapterId} />;
+    }
+
+    if (hash.includes('science')) {
+      const match = hash.match(/science\/([a-z0-9_-]+)/i);
+      const topicId = match && match[1] ? match[1] : undefined;
+      return <SciencePractice initialTopicId={topicId} />;
     }
 
     if (hash.includes('unit')) {
@@ -186,13 +208,15 @@ const AppContent: React.FC = () => {
 export const App: React.FC = () => {
   return (
     <AuthProvider>
-      <StudyProvider>
-        <MistakeProvider>
-          <ToastProvider>
-            <AppContent />
-          </ToastProvider>
-        </MistakeProvider>
-      </StudyProvider>
+      <SubjectProvider>
+        <StudyProvider>
+          <MistakeProvider>
+            <ToastProvider>
+              <AppContent />
+            </ToastProvider>
+          </MistakeProvider>
+        </StudyProvider>
+      </SubjectProvider>
     </AuthProvider>
   );
 };

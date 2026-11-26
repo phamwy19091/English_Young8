@@ -230,6 +230,7 @@ export function normalizeMistakeItem(rawM: any): MistakeItem | null {
 
   return {
     id,
+    ...(rawM.subjectId ? { subjectId: rawM.subjectId } : {}),
     sourceType,
     sourceId,
     questionId,
@@ -285,6 +286,7 @@ export function normalizeExamAttempt(raw: any): ExamAttempt {
 
   return {
     id,
+    ...(raw.subjectId ? { subjectId: raw.subjectId } : {}),
     examId,
     examTitle,
     score,
@@ -445,6 +447,9 @@ export function getStudentSnapshot(username: string): StudentSnapshot {
       username,
       learnedVocab,
       unitScores,
+      ...(parsed.subjectProgress && typeof parsed.subjectProgress === 'object'
+        ? { subjectProgress: parsed.subjectProgress }
+        : {}),
       examHistory,
       mistakes,
       streak: {

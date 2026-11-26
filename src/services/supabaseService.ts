@@ -750,10 +750,18 @@ class SupabaseService {
         .map(normalizeMistakeItem)
         .filter((m: any): m is MistakeItem => m !== null);
 
+      const subjectProgress = {
+        ...(localSnapshot.subjectProgress || {}),
+        ...(source.subjectProgress && typeof source.subjectProgress === 'object'
+          ? source.subjectProgress
+          : {}),
+      };
+
       const mergedSnapshot: StudentSnapshot = {
         username: userRow.username || username,
         learnedVocab,
         unitScores,
+        ...(Object.keys(subjectProgress).length > 0 ? { subjectProgress } : {}),
         examHistory,
         mistakes,
         streak: {
@@ -792,6 +800,7 @@ class SupabaseService {
         username: user.username,
         learnedVocab: snapshot.learnedVocab || [],
         unitScores: snapshot.unitScores || {},
+        ...(snapshot.subjectProgress ? { subjectProgress: snapshot.subjectProgress } : {}),
         examHistory: (snapshot.examHistory || []).slice(0, 50),
         mistakes: snapshot.mistakes || [],
         streak: snapshot.streak || {

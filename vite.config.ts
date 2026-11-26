@@ -26,6 +26,12 @@ export default defineConfig({
           if (id.includes('/src/data/exams/') || id.includes('\\src\\data\\exams\\')) {
             return 'data-exams';
           }
+          if (id.includes('/src/data/math/') || id.includes('\\src\\data\\math\\')) {
+            return 'data-math';
+          }
+          if (id.includes('/src/data/science/') || id.includes('\\src\\data\\science\\')) {
+            return 'data-science';
+          }
         },
       },
     },

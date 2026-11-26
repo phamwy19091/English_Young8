@@ -108,6 +108,7 @@ export const ExamRoom: React.FC<ExamRoomProps> = ({ exam, onExit }) => {
 
       // Save attempt
       const attempt = recordExamAttempt({
+        subjectId: exam.subjectId || 'english',
         examId: exam.id,
         examTitle: exam.title,
         score: score10,
@@ -119,7 +120,7 @@ export const ExamRoom: React.FC<ExamRoomProps> = ({ exam, onExit }) => {
 
       // Harvest wrong answers
       if (wrongList.length > 0) {
-        harvestMistakes('exam', exam.id, wrongList);
+        harvestMistakes('exam', exam.id, wrongList, exam.subjectId || 'english');
       }
 
       const resultObj = {

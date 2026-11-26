@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
 import { MistakeItem } from '../types/storage';
 import { UnitQuestion } from '../types/curriculum';
+import type { SubjectId } from '../types/subject';
 import { useAuth } from './AuthContext';
 import { getStudentSnapshot, saveStudentSnapshot } from '../services/storageService';
 import { supabaseService } from '../services/supabaseService';
@@ -11,7 +12,8 @@ interface MistakeContextType {
   harvestMistakes: (
     sourceType: 'unit' | 'exam',
     sourceId: string | number,
-    wrongList: Array<{ question: UnitQuestion; wrongAnswer: number }>
+    wrongList: Array<{ question: UnitQuestion; wrongAnswer: number }>,
+    subjectId?: SubjectId
   ) => void;
   retryMistake: (mistakeId: string, optionIdx: number) => { isCorrect: boolean };
   resolveMistake: (mistakeId: string) => void;
@@ -60,7 +62,8 @@ export const MistakeProvider: React.FC<{ children: ReactNode }> = ({ children })
     (
       sourceType: 'unit' | 'exam',
       sourceId: string | number,
-      wrongList: Array<{ question: UnitQuestion; wrongAnswer: number }>
+      wrongList: Array<{ question: UnitQuestion; wrongAnswer: number }>,
+      subjectId: SubjectId = 'english'
     ) => {
       if (!wrongList || wrongList.length === 0) return;
 
@@ -74,6 +77,7 @@ export const MistakeProvider: React.FC<{ children: ReactNode }> = ({ children })
           const qId = question.id;
           const existing = existingMap.get(qId);
           if (existing) {
+            existing.subjectId = subjectId;
             existing.wrongAnswer = wrongAnswer;
             existing.question = question; // Synchronize question options and answer key with latest shuffle
             existing.resolved = false;
@@ -81,6 +85,7 @@ export const MistakeProvider: React.FC<{ children: ReactNode }> = ({ children })
           } else {
             const newItem: MistakeItem = {
               id: `mst_${qId}_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+              subjectId,
               sourceType,
               sourceId,
               questionId: qId,

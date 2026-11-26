@@ -1,3 +1,5 @@
+import type { SubjectId } from './subject';
+
 export interface VocabularyItem {
   id: string;
   word: string;
@@ -82,6 +84,7 @@ export interface UnitData {
 
 export interface ExamData {
   id: string;
+  subjectId?: SubjectId;
   title: string;
   category?: string;
   badge?: string;

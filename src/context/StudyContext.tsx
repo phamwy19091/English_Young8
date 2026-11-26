@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback, useMemo } from 'react';
 import { UnitData, ExamData } from '../types/curriculum';
-import { ExamAttempt } from '../types/storage';
+import { ExamAttempt, SubjectProgressEntry } from '../types/storage';
+import { SubjectId } from '../types/subject';
 import { unitsData } from '../data/units';
 import { useAuth } from './AuthContext';
 import { getStudentSnapshot, saveStudentSnapshot } from '../services/storageService';
@@ -21,8 +22,11 @@ interface StudyContextType {
   isVocabLearned: (vocabId: string) => boolean;
   unitScores: Record<number, number>;
   saveUnitScore: (unitNumber: number, score: number) => void;
+  subjectProgress: Record<string, SubjectProgressEntry>;
+  saveChapterScore: (subjectId: SubjectId, chapterId: string, score: number) => void;
   examHistory: ExtendedExamAttempt[];
   recordExamAttempt: (attemptData: {
+    subjectId?: SubjectId;
     examId: string;
     examTitle: string;
     score: number;
@@ -46,6 +50,7 @@ export const StudyProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const [activeUnitId, setActiveUnitId] = useState<number>(1);
   const [learnedVocab, setLearnedVocab] = useState<string[]>([]);
   const [unitScores, setUnitScores] = useState<Record<number, number>>({});
+  const [subjectProgress, setSubjectProgress] = useState<Record<string, SubjectProgressEntry>>({});
   const [examHistory, setExamHistory] = useState<ExtendedExamAttempt[]>([]);
   const [activeExam, setActiveExam] = useState<ExamData | null>(null);
 
@@ -54,6 +59,7 @@ export const StudyProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     if (!user?.username) {
       setLearnedVocab([]);
       setUnitScores({});
+      setSubjectProgress({});
       setExamHistory([]);
       return;
     }
@@ -61,6 +67,7 @@ export const StudyProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     const snap = getStudentSnapshot(user.username);
     setLearnedVocab(snap.learnedVocab || []);
     setUnitScores(snap.unitScores || {});
+    setSubjectProgress(snap.subjectProgress || {});
     setExamHistory(snap.examHistory as ExtendedExamAttempt[] || []);
 
     // 2. Async cloud sync for student
@@ -68,6 +75,7 @@ export const StudyProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       supabaseService.fetchStudentFullRecord(user.username).then(cloudSnap => {
         setLearnedVocab(cloudSnap.learnedVocab || []);
         setUnitScores(cloudSnap.unitScores || {});
+        setSubjectProgress(cloudSnap.subjectProgress || {});
         setExamHistory(cloudSnap.examHistory as ExtendedExamAttempt[] || []);
       }).catch(err => console.warn('StudyContext cloud sync error:', err));
     }
@@ -123,7 +131,37 @@ export const StudyProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     });
   }, [user]);
 
+  const saveChapterScore = useCallback((subjectId: SubjectId, chapterId: string, score: number) => {
+    if (!user?.username) return;
+    setSubjectProgress(prev => {
+      const currentSub = prev[subjectId] || { chapterScores: {}, completedTopics: [] };
+      const prevBest = currentSub.chapterScores[chapterId] ?? -1;
+      const bestScore = Math.max(prevBest, score);
+      const completedSet = new Set(currentSub.completedTopics || []);
+      completedSet.add(chapterId);
+
+      const updated: Record<string, SubjectProgressEntry> = {
+        ...prev,
+        [subjectId]: {
+          chapterScores: {
+            ...currentSub.chapterScores,
+            [chapterId]: bestScore,
+          },
+          completedTopics: Array.from(completedSet),
+        },
+      };
+
+      const snap = getStudentSnapshot(user.username);
+      snap.subjectProgress = updated;
+      snap.updatedAt = new Date().toISOString();
+      saveStudentSnapshot(snap);
+      if (user) supabaseService.syncStudentSnapshotToCloud(user, snap);
+      return updated;
+    });
+  }, [user]);
+
   const recordExamAttempt = useCallback((attemptData: {
+    subjectId?: SubjectId;
     examId: string;
     examTitle: string;
     score: number;
@@ -185,6 +223,8 @@ export const StudyProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         isVocabLearned,
         unitScores,
         saveUnitScore,
+        subjectProgress,
+        saveChapterScore,
         examHistory,
         recordExamAttempt,
         streakDays,

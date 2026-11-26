@@ -1,11 +1,25 @@
 import React, { useState, useMemo } from 'react';
 import { ExamData, UnitQuestion } from '../../types/curriculum';
 import { examsData } from '../../data/exams';
+import { mathExamsData } from '../../data/math/mathExams';
+import { scienceExamsData } from '../../data/science/scienceExams';
 import { unitsData } from '../../data/units';
 import { useStudy } from '../../context/StudyContext';
 import { useMistakes } from '../../context/MistakeContext';
+import { useSubject } from '../../context/SubjectContext';
 import { generateSmartAdaptiveQuiz } from '../../services/adaptiveService';
-import { GraduationCap, Clock, Sparkles, Zap, Flame, Award, BookOpen, Layers } from 'lucide-react';
+import {
+  GraduationCap,
+  Clock,
+  Sparkles,
+  Zap,
+  Flame,
+  Award,
+  BookOpen,
+  Layers,
+  Calculator,
+  FlaskConical,
+} from 'lucide-react';
 
 interface ExamListProps {
   onStartExam: (exam: ExamData) => void;
@@ -16,9 +30,19 @@ type ExamFilterType = 'all' | 'entrance10' | 'sem1' | 'sem2' | '15m' | 'midterm_
 export const ExamList: React.FC<ExamListProps> = ({ onStartExam }) => {
   const { examHistory } = useStudy();
   const { mistakes } = useMistakes();
+  const { activeSubjectId } = useSubject();
   const [activeFilter, setActiveFilter] = useState<ExamFilterType>('all');
 
+  const baseExamsForSubject = useMemo(() => {
+    if (activeSubjectId === 'math') return mathExamsData;
+    if (activeSubjectId === 'science') return scienceExamsData;
+    return examsData;
+  }, [activeSubjectId]);
+
   const filteredExams = useMemo(() => {
+    if (activeSubjectId !== 'english') {
+      return baseExamsForSubject;
+    }
     switch (activeFilter) {
       case 'entrance10':
         return examsData.filter(e => e.type === 'entrance10' || e.category === 'entrance10' || (e.badge && e.badge.includes('Tuyển Sinh')));
@@ -34,7 +58,7 @@ export const ExamList: React.FC<ExamListProps> = ({ onStartExam }) => {
       default:
         return examsData;
     }
-  }, [activeFilter]);
+  }, [activeFilter, activeSubjectId, baseExamsForSubject]);
 
   const entrance10Count = useMemo(() => {
     return examsData.filter(e => e.type === 'entrance10' || (e.badge && e.badge.includes('Tuyển Sinh'))).length;
@@ -63,6 +87,54 @@ export const ExamList: React.FC<ExamListProps> = ({ onStartExam }) => {
 
   return (
     <div className="exam-list-container max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full">
+      {activeSubjectId === 'math' && (
+        <div className="bg-gradient-to-r from-blue-900 via-blue-950 to-slate-900 text-white rounded-3xl p-6 sm:p-8 shadow-xl border border-blue-800/50 mb-8 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+          <div className="space-y-2 max-w-2xl">
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-800/80 text-blue-100 text-xs font-bold border border-blue-700/50">
+              <Calculator className="w-3.5 h-3.5" />
+              <span>Phòng Thi Toán 8 • Kết nối tri thức</span>
+            </div>
+            <h2 className="text-2xl sm:text-3xl font-black tracking-tight">
+              Ngân Hàng Đề Kiểm Tra Toán 8 Bấm Giờ
+            </h2>
+            <p className="text-xs sm:text-sm text-blue-100/90 leading-relaxed">
+              Bao gồm đề 15 phút, Giữa kì và Cuối kì chuẩn cấu trúc Toán 8; chấm điểm tự động và lưu câu sai về Sổ tay Toán 8.
+            </p>
+          </div>
+          <a
+            href="#/math"
+            className="px-5 py-2.5 rounded-xl bg-white/15 hover:bg-white/25 text-white text-xs font-bold border border-white/20 transition-colors shrink-0"
+          >
+            Xem lại Công thức &amp; Định lý
+          </a>
+        </div>
+      )}
+
+      {activeSubjectId === 'science' && (
+        <div className="bg-gradient-to-r from-emerald-900 via-teal-950 to-slate-900 text-white rounded-3xl p-6 sm:p-8 shadow-xl border border-emerald-800/50 mb-8 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+          <div className="space-y-2 max-w-2xl">
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-800/80 text-emerald-100 text-xs font-bold border border-emerald-700/50">
+              <FlaskConical className="w-3.5 h-3.5" />
+              <span>Phòng Thi KHTN 8 • Hóa – Lí – Sinh</span>
+            </div>
+            <h2 className="text-2xl sm:text-3xl font-black tracking-tight">
+              Ngân Hàng Đề Thi Tích Hợp KHTN 8
+            </h2>
+            <p className="text-xs sm:text-sm text-emerald-100/90 leading-relaxed">
+              Kiểm tra tổng hợp cả 3 phân môn Hóa học, Vật lí và Sinh học với đồng hồ đếm ngược và lời giải chi tiết.
+            </p>
+          </div>
+          <a
+            href="#/science"
+            className="px-5 py-2.5 rounded-xl bg-white/15 hover:bg-white/25 text-white text-xs font-bold border border-white/20 transition-colors shrink-0"
+          >
+            Ôn Kiến thức &amp; Tra cứu
+          </a>
+        </div>
+      )}
+
+      {activeSubjectId === 'english' && (
+        <>
       {/* Smart Adaptive Banner */}
       <div className="bg-gradient-to-r from-indigo-900 via-indigo-950 to-purple-950 text-white rounded-3xl p-6 sm:p-8 shadow-xl border border-indigo-800/50 mb-8 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
         <div className="space-y-2 max-w-2xl">
@@ -161,15 +233,23 @@ export const ExamList: React.FC<ExamListProps> = ({ onStartExam }) => {
           <span>Giữa kỳ & Cuối kỳ</span>
         </button>
       </div>
+        </>
+      )}
 
       {/* Standard Exams Section */}
       <div className="mb-6">
         <div className="flex items-center justify-between mb-4">
           <div>
             <h3 className="text-xl font-bold text-slate-900 flex items-center gap-2">
-              {activeFilter === 'entrance10' && <Flame className="w-5 h-5 text-amber-500 fill-amber-500" />}
+              {activeSubjectId === 'english' && activeFilter === 'entrance10' && (
+                <Flame className="w-5 h-5 text-amber-500 fill-amber-500" />
+              )}
               <span>
-                {activeFilter === 'entrance10'
+                {activeSubjectId === 'math'
+                  ? 'Danh sách Đề thi Toán 8 (Kết nối tri thức)'
+                  : activeSubjectId === 'science'
+                  ? 'Danh sách Đề thi KHTN 8 (Kết nối tri thức)'
+                  : activeFilter === 'entrance10'
                   ? 'Phân hệ Luyện Thi Tuyển Sinh Vào Lớp 10 (Chuẩn Đề Sở GD&ĐT)'
                   : activeFilter === 'sem2'
                   ? 'Ngân hàng Đề thi Học Kỳ 2 (Global Success)'
@@ -179,7 +259,11 @@ export const ExamList: React.FC<ExamListProps> = ({ onStartExam }) => {
               </span>
             </h3>
             <p className="text-xs text-slate-500">
-              {activeFilter === 'entrance10'
+              {activeSubjectId === 'math'
+                ? 'Đề thi bấm giờ với lời giải chi tiết từng bước cho từng câu hỏi Toán 8.'
+                : activeSubjectId === 'science'
+                ? 'Đề thi tích hợp Hóa học – Vật lí – Sinh học có đáp án và giải thích rõ ràng.'
+                : activeFilter === 'entrance10'
                 ? 'Đề thi 60 phút - 50 câu chuẩn hóa cấu trúc đề thi chính thức, bao phủ 8 dạng bài có đáp án & lời giải chi tiết.'
                 : 'Bao gồm Đề 15 phút, Đề Giữa kì và Đề Cuối kì có bấm giờ, tự động thu bài và soi chi tiết bài làm.'}
             </p>
